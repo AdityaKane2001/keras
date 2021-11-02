@@ -23,6 +23,7 @@ py_library(
         "__init__.py",
         "densenet.py",
         "efficientnet.py",
+        "efficientnet_v2.py",
         "imagenet_utils.py",
         "inception_resnet_v2.py",
         "inception_v3.py",
@@ -56,7 +57,7 @@ tf_py_test(
     name = "applications_test",
     size = "medium",
     srcs = ["applications_test.py"],
-    shard_count = 36,
+    shard_count = 40,
     tags = [
         "no_rocm",
         "notsan",  # b/168814536
@@ -285,6 +286,25 @@ tf_py_test(
     size = "large",
     srcs = ["applications_load_weight_test.py"],
     args = ["--module=efficientnet"],
+    main = "applications_load_weight_test.py",
+    shard_count = 8,
+    tags = [
+        "no_oss",
+        "no_pip",
+    ],
+    deps = [
+        ":applications",
+        "//:expect_absl_installed",
+        "//:expect_tensorflow_installed",
+        "//keras/preprocessing",
+    ],
+)
+
+tf_py_test(
+    name = "applications_load_weight_test_efficientnet_v2",
+    size = "large",
+    srcs = ["applications_load_weight_test.py"],
+    args = ["--module=efficientnet_v2"],
     main = "applications_load_weight_test.py",
     shard_count = 8,
     tags = [

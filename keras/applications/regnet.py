@@ -494,7 +494,7 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
         padding="same",
         kernel_initializer="he_normal",
         name=name + "_conv_3x3",
-        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(x)
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6))(x)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_conv_3x3_bn")(x)
     x = layers.ReLU(name=name + "_conv_3x3_relu")(x)

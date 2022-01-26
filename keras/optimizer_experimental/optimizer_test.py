@@ -4,18 +4,22 @@ More context in go/new-keras-optimizer
 """
 
 import os
+import re
 
+from absl import logging
 from absl.testing import parameterized
 import keras
 from keras.optimizer_experimental import adadelta as adadelta_new
 from keras.optimizer_experimental import adagrad as adagrad_new
 from keras.optimizer_experimental import adam as adam_new
+from keras.optimizer_experimental import rmsprop as rmsprop_new
 from keras.optimizer_experimental import sgd as sgd_new
 from keras.optimizer_v2 import adadelta as adadelta_old
 from keras.optimizer_v2 import adagrad as adagrad_old
 from keras.optimizer_v2 import adam as adam_old
 from keras.optimizer_v2 import gradient_descent as sgd_old
 from keras.optimizer_v2 import learning_rate_schedule
+from keras.optimizer_v2 import rmsprop as rmsprop_old
 from keras.utils import losses_utils
 import numpy as np
 import tensorflow.compat.v2 as tf
@@ -35,18 +39,25 @@ STRATEGIES = [
 ]
 
 adadelta_new_fn = tf.__internal__.test.combinations.NamedObject(
-    "experimentaladadelta", lambda: adadelta_new.Adadelta(0.002))
+    "experimentaladadelta",
+    lambda: adadelta_new.Adadelta(  # pylint: disable=g-long-lambda
+        0.002, use_ema=True, ema_overwrite_frequency=None))
 adagrad_new_fn = tf.__internal__.test.combinations.NamedObject(
     "experimentaladagrad", lambda: adagrad_new.Adagrad(0.002))
 adam_new_fn = tf.__internal__.test.combinations.NamedObject(
     "experimentaladam", lambda: adam_new.Adam(0.002))
+rmsprop_new_fn = tf.__internal__.test.combinations.NamedObject(
+    "experimentalrmsprop", lambda: rmsprop_new.RMSprop(0.002))
 sgd_new_fn = tf.__internal__.test.combinations.NamedObject(
-    "experimentalsgdaverage", lambda: sgd_new.SGD(0.002, use_ema=True))
+    "experimentalsgdaverage",
+    lambda: sgd_new.SGD(  # pylint: disable=g-long-lambda
+        0.002, use_ema=True, ema_overwrite_frequency=1))
 
 OPTIMIZER_FN = [
     adadelta_new_fn,
     adagrad_new_fn,
     adam_new_fn,
+    rmsprop_new_fn,
     sgd_new_fn,
 ]
 
@@ -88,9 +99,18 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
     clipped_grad = optimizer._clip_gradients(grad)
     self.assertAllClose(clipped_grad[0], [0.5, 0.5])
 
-    with self.assertRaisesRegex(ValueError, "At most one of*"):
-      _ = adam_new.Adam(
-          learning_rate=1, epsilon=0, global_clipnorm=1, clipnorm=1)
+  def testPassingLegacyArgsRaiseWarning(self):
+    with self.assertLogs(level="WARNING") as log_output:
+      logging.set_verbosity(logging.WARNING)
+      _ = adam_new.Adam(clipnorm=1, decay=0.5)
+      expected_log = "decay is deprecated in"
+      output = log_output[0][0].message
+
+      self.assertTrue(re.search(expected_log, output))
+
+  def testPassingLegacyClipnorm(self):
+    optimizer = adam_new.Adam(clipnorm=1)
+    self.assertEqual(optimizer._clipnorm, 1)
 
   def testReturnAllOptimizerVariables(self):
     x = tf.Variable([[1.0, 2.0], [3.0, 4.0]], dtype=tf.float32)
@@ -110,6 +130,9 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
     self.assertEqual(self.evaluate(optimizer.learning_rate), 1.0)
     optimizer.learning_rate = 2.0
     self.assertEqual(self.evaluate(optimizer.learning_rate), 2.0)
+    # Test the legacy setter.
+    optimizer.lr = 3.0
+    self.assertEqual(self.evaluate(optimizer.learning_rate), 3.0)
 
     lr_schedule = learning_rate_schedule.ExponentialDecay(
         initial_learning_rate=1e-2, decay_steps=10000, decay_rate=0.9)
@@ -117,6 +140,8 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
     self.assertIsInstance(optimizer._learning_rate,
                           learning_rate_schedule.ExponentialDecay)
     self.assertEqual(optimizer.learning_rate, 0.01)
+    # Test the legacy property.
+    self.assertEqual(optimizer.lr, 0.01)
 
     x = tf.Variable([1.0, 2.0], dtype=tf.float32)
     grads = tf.convert_to_tensor([1.0, 2.0])
@@ -127,30 +152,52 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
     with self.assertRaisesRegex(TypeError, "This optimizer was created with*"):
       optimizer.learning_rate = 2.0
 
+  def testSetIterations(self):
+    optimizer = adam_new.Adam()
+    optimizer.iterations = tf.Variable(2, dtype=tf.int32)
+    self.assertEqual(optimizer.iterations, 2)
+    var_list = [tf.Variable(2.0), tf.Variable(2.0)]
+    grads = tf.convert_to_tensor([1.0, 1.0])
+    optimizer.apply_gradients(zip(grads, var_list))
+    self.assertEqual(optimizer.iterations, 3)
+    with self.assertRaisesRegex(RuntimeError, "Cannot set*"):
+      optimizer.iterations = 2
+
   def testMovingAverageOptimizer(self):
-    # We set polyak averaging with ema_momentum = 1 so that the
-    #  moving average is always the original value of the variables.
-    optimizer = adam_new.Adam(
-        use_ema=True, ema_momentum=1, ema_overwrite_frequency=2)
-    x = tf.Variable([1.0, 2.0], dtype=tf.float32)
-    x_origin = tf.Variable(x)
-    grads = tf.convert_to_tensor([1.0, 2.0])
-    # First iteration, we store the moving average, and do not do overriding.
-    optimizer.apply_gradients(zip([grads], [x]))
-    self.assertAllEqual(optimizer._model_variables_moving_average[0], x_origin)
-    self.assertNotAllEqual(x, x_origin)
+    optimizer = sgd_new.SGD(
+        learning_rate=1,
+        use_ema=True,
+        ema_momentum=0.5,
+        ema_overwrite_frequency=3)
 
-    # Second iteration, we store the moving average, and override model vars.
-    optimizer.apply_gradients(zip([grads], [x]))
-    self.assertAllEqual(x, x_origin)
+    var1, var2 = tf.Variable(2.0), tf.Variable(2.0)
+    with tf.GradientTape() as tape:
+      loss = var1 + var2
+    grads = tape.gradient(loss, [var1, var2])
+    # First iteration: [var1, var2] = [1.0, 1.0]
+    optimizer.apply_gradients(zip(grads, [var1, var2]))
+    self.assertAllEqual([var1.numpy(), var2.numpy()], [1.0, 1.0])
 
-  def testGetConfig(self):
+    # Second iteration: [var1, var2] = [0.0, 0.0]
+    optimizer.apply_gradients(zip(grads, [var1, var2]))
+    self.assertAllEqual([var1.numpy(), var2.numpy()], [0.0, 0.0])
+
+    # Third iteration, without EMA, we should see [var1, var2] = [-1.0, -1.0],
+    # but overwriting results in [var1, var2] = [-0.125, -0.125].
+    optimizer.apply_gradients(zip(grads, [var1, var2]))
+    self.assertAllEqual([var1.numpy(), var2.numpy()], [-0.125, -0.125])
+
+  def testGetAndFromConfig(self):
     optimizer = adam_new.Adam(
         learning_rate=np.float64(0.05),
         beta_1=0.7,
         beta_2=0.77,
         amsgrad=True,
-        epsilon=0.001)
+        epsilon=0.001,
+        clipnorm=0.5,
+        use_ema=True,
+        ema_momentum=0.5,
+        ema_overwrite_frequency=50)
     config = optimizer.get_config()
     self.assertDictEqual(
         config, {
@@ -159,10 +206,17 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
             "beta_2": 0.77,
             "epsilon": 0.001,
             "amsgrad": True,
-            "clipnorm": None,
+            "clipnorm": 0.5,
             "global_clipnorm": None,
             "clipvalue": None,
+            "use_ema": True,
+            "ema_momentum": 0.5,
+            "ema_overwrite_frequency": 50,
+            "jit_compile": False,
         })
+    restored_optimizer = adam_new.Adam.from_config(config)
+    self.assertDictEqual(restored_optimizer.get_config(),
+                         optimizer.get_config())
 
   def testCheckpointOptimizer(self):
     x = tf.Variable([[1.0, 2.0], [3.0, 4.0]], dtype=tf.float32)
@@ -210,9 +264,10 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
     model.save(path)
     loaded_model = keras.models.load_model(path)
     loaded_model.load_weights(path)
-    self.assertEqual(type(optimizer), type(loaded_model.optimizer))
-    self.assertEqual(loaded_model.optimizer.learning_rate, 0.002)
-    self.assertEqual(loaded_model.optimizer._clipnorm, 0.1)
+    loaded_optimizer = loaded_model.optimizer
+    self.assertEqual(type(optimizer), type(loaded_optimizer))
+    self.assertEqual(loaded_optimizer.learning_rate, 0.002)
+    self.assertEqual(loaded_optimizer._clipnorm, 0.1)
 
     # Save in Keras SavedModel format.
     model.fit(x, y)
@@ -220,16 +275,16 @@ class OptimizerFuntionalityTest(tf.test.TestCase, parameterized.TestCase):
     model.save(path)
     loaded_model = keras.models.load_model(path)
     loaded_model.load_weights(path)
-    self.assertEqual(type(optimizer), type(loaded_model.optimizer))
-    self.assertEqual(loaded_model.optimizer.learning_rate, 0.002)
-    self.assertEqual(loaded_model.optimizer._clipnorm, 0.1)
+    loaded_optimizer = loaded_model.optimizer
+    self.assertEqual(type(optimizer), type(loaded_optimizer))
+    self.assertEqual(loaded_optimizer.learning_rate, 0.002)
+    self.assertEqual(loaded_optimizer._clipnorm, 0.1)
 
 
 class OptimizerRegressionTest(tf.test.TestCase, parameterized.TestCase):
   """Test optimizer outputs the same numerical results as optimizer_v2."""
 
   def _compare_numerical(self, old_optimizer, new_optimizer):
-    tf.config.run_functions_eagerly(True)
     x1 = tf.Variable(np.ones([10]), dtype=tf.float64)
     x2 = tf.Variable(np.ones([10]), dtype=tf.float64)
     grads = tf.convert_to_tensor(np.arange(0.1, 1.1, 0.1))
@@ -257,6 +312,9 @@ class OptimizerRegressionTest(tf.test.TestCase, parameterized.TestCase):
 
   def testAdagrad(self):
     self._compare_numerical(adagrad_old.Adagrad(), adagrad_new.Adagrad())
+
+  def testRMSprop(self):
+    self._compare_numerical(rmsprop_new.RMSprop(), rmsprop_old.RMSprop())
 
   @parameterized.product(nesterov=[True, False])
   def testSgd(self, nesterov):
@@ -329,6 +387,67 @@ class DistributedTrainingTest(tf.test.TestCase, parameterized.TestCase):
       for _ in range(3):
         train_step(ds)
     self.assertEqual(self.evaluate(optimizer.iterations), 3)
+
+  @ds_combinations.generate(
+      tf.__internal__.test.combinations.combine(strategy=[
+          ds_combinations.mirrored_strategy_with_two_gpus,
+          ds_combinations.tpu_strategy,
+          ds_combinations.multi_worker_mirrored_2x2_gpu,
+          ds_combinations.central_storage_strategy_with_two_gpus,
+      ]))
+  def testJitCompile(self, strategy):
+    # Test the optimizer yields same numerical results when jit_compile is
+    # on and off.
+    with strategy.scope():
+      optimizer_1 = adam_new.Adam(use_ema=True, ema_overwrite_frequency=1)
+      optimizer_2 = adam_new.Adam(
+          jit_compile=True, use_ema=True, ema_overwrite_frequency=1)
+      model_1 = keras.Sequential([
+          keras.layers.Input(shape=(2,)),
+          keras.layers.Dense(5),
+          keras.layers.Dense(1)
+      ])
+      model_2 = keras.models.clone_model(model_1)
+      model_2.set_weights(model_1.get_weights())
+
+      def per_worker_dataset_fn():
+
+        def dataset_fn(_):
+          x = np.random.rand(6, 2)
+          y = [1, 1, 1, 0, 0, 0]
+          ds = tf.data.Dataset.from_tensor_slices((x, y))
+          ds = ds.repeat().batch(6)
+          return ds
+
+        return strategy.distribute_datasets_from_function(dataset_fn)
+
+      ds = per_worker_dataset_fn()
+
+      @tf.function
+      def train_step(ds):
+
+        def replica_fn(data):
+          features, labels = data
+          with tf.GradientTape() as tape:
+            output_1 = model_1(features)
+            loss_1 = keras.losses.MeanSquaredError(
+                reduction=losses_utils.ReductionV2.NONE)(labels, output_1)
+          grads_1 = tape.gradient(loss_1, model_1.trainable_variables)
+          optimizer_1.apply_gradients(zip(grads_1, model_1.trainable_variables))
+
+          with tf.GradientTape() as tape:
+            output_2 = model_2(features)
+            loss_2 = keras.losses.MeanSquaredError(
+                reduction=losses_utils.ReductionV2.NONE)(labels, output_2)
+          grads_2 = tape.gradient(loss_2, model_2.trainable_variables)
+          optimizer_2.apply_gradients(zip(grads_2, model_2.trainable_variables))
+
+        strategy.run(replica_fn, args=(next(iter(ds)),))
+
+      for _ in range(3):
+        train_step(ds)
+        self.assertAllClose(model_1.trainable_variables[0][0],
+                            model_2.trainable_variables[0][0])
 
 
 if __name__ == "__main__":

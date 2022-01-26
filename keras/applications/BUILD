@@ -315,6 +315,7 @@ tf_py_test(
 
 tf_py_test(
     name = "applications_load_weight_test_regnet",
+    size = "large",
     srcs = ["applications_load_weight_test.py"],
     args = ["--module=regnet"],
     main = "applications_load_weight_test.py",

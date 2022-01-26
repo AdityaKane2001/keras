@@ -2,6 +2,8 @@
 #   Contains the Keras layers (internal TensorFlow version).
 
 load("@org_keras//keras:keras.bzl", "cuda_py_test")
+
+# buildifier: disable=same-origin-load
 load("@org_keras//keras:keras.bzl", "tf_py_test")
 
 package(
@@ -28,7 +30,6 @@ py_library(
     srcs_version = "PY3",
     deps = [
         ":advanced_activations",
-        ":convolutional",
         ":convolutional_recurrent",
         ":cudnn_recurrent",
         ":dense_attention",
@@ -36,18 +37,20 @@ py_library(
         ":embeddings",
         ":kernelized",
         ":local",
-        ":merge",
         ":multi_head_attention",
         ":noise",
-        ":pooling",
         ":recurrent",
         ":recurrent_v2",
         ":rnn_cell_wrapper_v2",
         ":wrappers",
         "//keras/feature_column",
+        "//keras/layers/convolutional",
         "//keras/layers/core",
+        "//keras/layers/merging",
         "//keras/layers/normalization",
+        "//keras/layers/pooling",
         "//keras/layers/preprocessing",
+        "//keras/layers/reshaping",
         "//keras/premade",
         "//keras/utils:tf_utils",
     ],
@@ -94,25 +97,6 @@ py_library(
         "//keras:regularizers",
         "//keras/engine:input_spec",
         "//keras/initializers",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "convolutional",
-    srcs = ["convolutional.py"],
-    srcs_version = "PY3",
-    deps = [
-        ":pooling",
-        "//:expect_tensorflow_installed",
-        "//keras:activations",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:input_spec",
-        "//keras/initializers",
-        "//keras/utils:engine_utils",
         "//keras/utils:tf_utils",
     ],
 )
@@ -227,18 +211,6 @@ py_library(
 )
 
 py_library(
-    name = "merge",
-    srcs = ["merge.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
     name = "noise",
     srcs = ["noise.py"],
     srcs_version = "PY3",
@@ -248,19 +220,6 @@ py_library(
         "//keras:backend",
         "//keras:base_layer",
         "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "pooling",
-    srcs = ["pooling.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras/engine:input_spec",
-        "//keras/utils:engine_utils",
     ],
 )
 
@@ -365,33 +324,6 @@ tf_py_test(
 )
 
 cuda_py_test(
-    name = "convolutional_test",
-    size = "medium",
-    srcs = ["convolutional_test.py"],
-    python_version = "PY3",
-    shard_count = 8,
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-cuda_py_test(
-    name = "convolutional_transpose_test",
-    size = "medium",
-    srcs = ["convolutional_transpose_test.py"],
-    python_version = "PY3",
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-cuda_py_test(
     name = "cudnn_recurrent_test",
     size = "medium",
     srcs = ["cudnn_recurrent_test.py"],
@@ -403,25 +335,6 @@ cuda_py_test(
     deps = [
         "//:expect_absl_installed",
         "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-        "//keras:combinations",
-    ],
-)
-
-tf_py_test(
-    name = "pooling_test",
-    size = "medium",
-    srcs = ["pooling_test.py"],
-    python_version = "PY3",
-    shard_count = 8,
-    # TODO(b/127881287): Re-enable.
-    tags = [
-        "no_windows_gpu",
-        "notsan",  # TODO(b/183962355)
-    ],
-    deps = [
-        "//:expect_absl_installed",
         "//:expect_tensorflow_installed",
         "//keras",
         "//keras:combinations",
@@ -487,21 +400,6 @@ tf_py_test(
     python_version = "PY3",
     shard_count = 4,
     tags = ["no_windows"],
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-        "//keras:combinations",
-    ],
-)
-
-tf_py_test(
-    name = "merge_test",
-    size = "medium",
-    srcs = ["merge_test.py"],
-    python_version = "PY3",
-    shard_count = 4,
     deps = [
         "//:expect_absl_installed",
         "//:expect_numpy_installed",
@@ -599,19 +497,6 @@ cuda_py_test(
     srcs = ["recurrent_v2_test.py"],
     python_version = "PY3",
     shard_count = 2,
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-cuda_py_test(
-    name = "separable_convolutional_test",
-    size = "medium",
-    srcs = ["separable_convolutional_test.py"],
-    python_version = "PY3",
     deps = [
         "//:expect_absl_installed",
         "//:expect_numpy_installed",

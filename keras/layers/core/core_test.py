@@ -18,6 +18,7 @@ import os
 import textwrap
 
 import keras
+from keras import initializers
 from keras import keras_parameterized
 from keras import testing_utils
 from keras.layers import core
@@ -405,6 +406,34 @@ class TestStatefulLambda(keras_parameterized.TestCase):
       model = testing_utils.get_model_from_layers([layer], input_shape=(1,))
       model(tf.ones((4, 1)))
 
+  @keras_parameterized.run_all_keras_modes
+  @keras_parameterized.run_with_all_model_types
+  def test_lambda_skip_state_variable_from_initializer(self):
+    # Force the initializers to use the tf.random.Generator, which will contain
+    # the state variable.
+    kernel_initializer = initializers.RandomNormalV2()
+    kernel_initializer._random_generator._force_generator = True
+    dense = keras.layers.Dense(1, use_bias=False,
+                               kernel_initializer=kernel_initializer)
+
+    def lambda_fn(x):
+      return dense(x + 1)  # Dense layer is built on first call
+
+    # While it is generally not advised to mix Variables with Lambda layers, if
+    # the variables are explicitly set as attributes then they are still
+    # tracked. This is consistent with the base Layer behavior.
+    layer = keras.layers.Lambda(lambda_fn)
+    layer.dense = dense
+
+    model = testing_utils.get_model_from_layers([layer], input_shape=(10,))
+    model.compile(
+        keras.optimizer_v2.gradient_descent.SGD(0.1),
+        'mae',
+        run_eagerly=testing_utils.should_run_eagerly())
+    x, y = np.ones((10, 10), 'float32'), 2 * np.ones((10, 10), 'float32')
+    model.fit(x, y, batch_size=2, epochs=2, validation_data=(x, y))
+    self.assertLen(model.trainable_weights, 1)
+
 
 @keras_parameterized.run_all_keras_modes
 class CoreLayersTest(keras_parameterized.TestCase):
@@ -451,81 +480,6 @@ class CoreLayersTest(keras_parameterized.TestCase):
         keras.layers.Activation,
         kwargs={'activation': keras.backend.relu},
         input_shape=(3, 2))
-
-  def test_reshape(self):
-    testing_utils.layer_test(
-        keras.layers.Reshape,
-        kwargs={'target_shape': (8, 1)},
-        input_shape=(3, 2, 4))
-
-    testing_utils.layer_test(
-        keras.layers.Reshape,
-        kwargs={'target_shape': (-1, 1)},
-        input_shape=(3, 2, 4))
-
-    testing_utils.layer_test(
-        keras.layers.Reshape,
-        kwargs={'target_shape': (1, -1)},
-        input_shape=(3, 2, 4))
-
-    testing_utils.layer_test(
-        keras.layers.Reshape,
-        kwargs={'target_shape': (-1, 1)},
-        input_shape=(None, None, 2))
-
-  def test_reshape_set_static_shape(self):
-    input_layer = keras.Input(batch_shape=(1, None))
-    reshaped = keras.layers.Reshape((1, 100))(input_layer)
-    # Make sure the batch dim is not lost after array_ops.reshape.
-    self.assertEqual(reshaped.shape, [1, 1, 100])
-
-  def test_permute(self):
-    testing_utils.layer_test(
-        keras.layers.Permute, kwargs={'dims': (2, 1)}, input_shape=(3, 2, 4))
-
-  def test_permute_errors_on_invalid_starting_dims_index(self):
-    with self.assertRaisesRegex(ValueError, r'Invalid permutation .*dims.*'):
-      testing_utils.layer_test(
-          keras.layers.Permute,
-          kwargs={'dims': (0, 1, 2)},
-          input_shape=(3, 2, 4))
-
-  def test_permute_errors_on_invalid_set_of_dims_indices(self):
-    with self.assertRaisesRegex(ValueError, r'Invalid permutation .*dims.*'):
-      testing_utils.layer_test(
-          keras.layers.Permute,
-          kwargs={'dims': (1, 4, 2)},
-          input_shape=(3, 2, 4))
-
-  def test_flatten(self):
-    testing_utils.layer_test(
-        keras.layers.Flatten, kwargs={}, input_shape=(3, 2, 4))
-
-    # Test channels_first
-    inputs = np.random.random((10, 3, 5, 5)).astype('float32')
-    outputs = testing_utils.layer_test(
-        keras.layers.Flatten,
-        kwargs={'data_format': 'channels_first'},
-        input_data=inputs)
-    target_outputs = np.reshape(
-        np.transpose(inputs, (0, 2, 3, 1)), (-1, 5 * 5 * 3))
-    self.assertAllClose(outputs, target_outputs)
-
-  def test_flatten_scalar_channels(self):
-    testing_utils.layer_test(keras.layers.Flatten, kwargs={}, input_shape=(3,))
-
-    # Test channels_first
-    inputs = np.random.random((10,)).astype('float32')
-    outputs = testing_utils.layer_test(
-        keras.layers.Flatten,
-        kwargs={'data_format': 'channels_first'},
-        input_data=inputs)
-    target_outputs = np.expand_dims(inputs, -1)
-    self.assertAllClose(outputs, target_outputs)
-
-  def test_repeat_vector(self):
-    testing_utils.layer_test(
-        keras.layers.RepeatVector, kwargs={'n': 3}, input_shape=(3, 2))
 
   def test_dense(self):
     testing_utils.layer_test(
@@ -676,16 +630,6 @@ class CoreLayersTest(keras_parameterized.TestCase):
     self.assertEqual(1, len(layer.losses))
     config = layer.get_config()
     self.assertEqual(config.pop('l1'), 0.1)
-
-  def test_numpy_inputs(self):
-    if tf.executing_eagerly():
-      layer = keras.layers.RepeatVector(2)
-      x = np.ones((10, 10))
-      self.assertAllEqual(np.ones((10, 2, 10)), layer(x))
-
-      layer = keras.layers.Concatenate()
-      x, y = np.ones((10, 10)), np.ones((10, 10))
-      self.assertAllEqual(np.ones((10, 20)), layer([x, y]))
 
 
 @keras_parameterized.run_all_keras_modes

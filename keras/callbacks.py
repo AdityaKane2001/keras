@@ -25,6 +25,7 @@ import re
 import sys
 import time
 
+
 from keras import backend
 from keras.distribute import distributed_file_utils
 from keras.distribute import worker_training_state
@@ -40,6 +41,7 @@ import numpy as np
 import tensorflow.compat.v2 as tf
 
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.util.tf_export import keras_export
 from tensorflow.tools.docs import doc_controls
 
@@ -1129,7 +1131,7 @@ class History(Callback):
   >>> model = tf.keras.models.Sequential([tf.keras.layers.Dense(10)])
   >>> model.compile(tf.keras.optimizers.SGD(), loss='mse')
   >>> history = model.fit(np.arange(100).reshape(5, 20), np.zeros(5),
-  ...                     epochs=10)
+  ...                     epochs=10, verbose=1)
   >>> print(history.params)
   {'verbose': 1, 'epochs': 10, 'steps': 1}
   >>> # check the keys of history object
@@ -1226,7 +1228,8 @@ class ModelCheckpoint(Callback):
           `history = model.fit()`
         * Multi-output models set additional prefixes on the metric names.
 
-      verbose: verbosity mode, 0 or 1.
+      verbose: Verbosity mode, 0 or 1. Mode 0 is silent, and mode 1
+        displays messages when the callback takes an action.
       save_best_only: if `save_best_only=True`, it only saves when the model
         is considered the "best" and the latest best model according to the
         quantity monitored will not be overwritten. If `filepath` doesn't
@@ -1253,6 +1256,10 @@ class ModelCheckpoint(Callback):
       options: Optional `tf.train.CheckpointOptions` object if
         `save_weights_only` is true or optional `tf.saved_model.SaveOptions`
         object if `save_weights_only` is false.
+      initial_value_threshold: Floating point initial "best" value of the metric
+        to be monitored. Only applies if `save_best_value=True`. Only overwrites
+        the model weights already saved if the performance of current
+        model is better than this value.
       **kwargs: Additional arguments for backwards compatibility. Possible key
         is `period`.
   """
@@ -1266,6 +1273,7 @@ class ModelCheckpoint(Callback):
                mode='auto',
                save_freq='epoch',
                options=None,
+               initial_value_threshold=None,
                **kwargs):
     super(ModelCheckpoint, self).__init__()
     self._supports_tf_logs = True
@@ -1278,6 +1286,7 @@ class ModelCheckpoint(Callback):
     self.epochs_since_last_save = 0
     self._batches_seen_since_last_saving = 0
     self._last_batch_seen = 0
+    self.best = initial_value_threshold
 
     if save_weights_only:
       if options is None or isinstance(
@@ -1322,17 +1331,21 @@ class ModelCheckpoint(Callback):
 
     if mode == 'min':
       self.monitor_op = np.less
-      self.best = np.Inf
+      if self.best is None:
+        self.best = np.Inf
     elif mode == 'max':
       self.monitor_op = np.greater
-      self.best = -np.Inf
+      if self.best is None:
+        self.best = -np.Inf
     else:
       if 'acc' in self.monitor or self.monitor.startswith('fmeasure'):
         self.monitor_op = np.greater
-        self.best = -np.Inf
+        if self.best is None:
+          self.best = -np.Inf
       else:
         self.monitor_op = np.less
-        self.best = np.Inf
+        if self.best is None:
+          self.best = np.Inf
 
     if self.save_freq != 'epoch' and not isinstance(self.save_freq, int):
       raise ValueError(
@@ -1586,7 +1599,7 @@ class ModelCheckpoint(Callback):
       return file_path_with_largest_file_name
 
 
-@keras_export('keras.callbacks.experimental.BackupAndRestore', v1=[])
+@keras_export('keras.callbacks.BackupAndRestore', v1=[])
 class BackupAndRestore(Callback):
   """Callback to back up and restore the training state.
 
@@ -1610,6 +1623,7 @@ class BackupAndRestore(Callback):
   invalid.
 
   Note:
+
   1. This callback is not compatible with eager execution disabled.
   2. A checkpoint is saved at the end of each epoch. After restoring,
   `Model.fit` redoes any partial work during the unfinished epoch in which the
@@ -1709,6 +1723,25 @@ class BackupAndRestore(Callback):
     self._training_state.back_up(epoch)
 
 
+@keras_export('keras.callbacks.experimental.BackupAndRestore', v1=[])
+@deprecation.deprecated_endpoints(
+    'keras.callbacks.experimental.BackupAndRestore')
+class BackupAndRestoreExperimental(BackupAndRestore):
+  """Deprecated. Please use `tf.keras.callbacks.BackupAndRestore` instead.
+
+  Caution: `tf.keras.callbacks.experimental.BackupAndRestore` endpoint is
+    deprecated and will be removed in a future release. Please use
+    `tf.keras.callbacks.BackupAndRestore`.
+  """
+
+  def __init__(self, *args, **kwargs):
+    logging.warning(
+        '`tf.keras.callbacks.experimental.BackupAndRestore` endpoint is '
+        'deprecated and will be removed in a future release. Please use '
+        '`tf.keras.callbacks.BackupAndRestore`.')
+    super(BackupAndRestoreExperimental, self).__init__(*args, **kwargs)
+
+
 @keras_export('keras.callbacks.EarlyStopping')
 class EarlyStopping(Callback):
   """Stop training when a monitored metric has stopped improving.
@@ -1731,7 +1764,8 @@ class EarlyStopping(Callback):
         improvement.
     patience: Number of epochs with no improvement
         after which training will be stopped.
-    verbose: verbosity mode.
+    verbose: Verbosity mode, 0 or 1. Mode 0 is silent, and mode 1
+        displays messages when the callback takes an action.
     mode: One of `{"auto", "min", "max"}`. In `min` mode,
         training will stop when the quantity
         monitored has stopped decreasing; in `"max"`

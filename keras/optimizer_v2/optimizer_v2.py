@@ -410,7 +410,12 @@ class OptimizerV2(tf.__internal__.tracking.Trackable):
 
   @property
   def global_clipnorm(self):
-    """`float` or `None`. If set, clips gradients to a maximum norm."""
+    """`float` or `None`.
+
+    If set, clips gradients to a maximum norm.
+
+    Check `tf.clip_by_global_norm` for more details.
+    """
     return self._global_clipnorm
 
   @clipnorm.setter
@@ -1097,8 +1102,7 @@ class OptimizerV2(tf.__internal__.tracking.Trackable):
     >>> m.compile(opt, loss='mse')
     >>> data = np.arange(100).reshape(5, 20)
     >>> labels = np.zeros(5)
-    >>> print('Training'); results = m.fit(data, labels)
-    Training ...
+    >>> results = m.fit(data, labels)  # Training.
     >>> len(opt.get_weights())
     3
 
@@ -1128,8 +1132,7 @@ class OptimizerV2(tf.__internal__.tracking.Trackable):
     >>> m.compile(opt, loss='mse')
     >>> data = np.arange(100).reshape(5, 20)
     >>> labels = np.zeros(5)
-    >>> print('Training'); results = m.fit(data, labels)
-    Training ...
+    >>> results = m.fit(data, labels)  # Training.
     >>> new_weights = [np.array(10), np.ones([20, 10]), np.zeros([10])]
     >>> opt.set_weights(new_weights)
     >>> opt.iterations

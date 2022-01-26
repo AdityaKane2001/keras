@@ -224,6 +224,44 @@ def convert_shapes(input_shape, to_tuples=True):
                                    input_shape)
 
 
+def validate_axis(axis, input_shape):
+  """Validate an axis value and returns its standardized form.
+
+  Args:
+    axis: Value to validate. Can be an integer or a list/tuple of integers.
+      Integers may be negative.
+    input_shape: Reference input shape that the axis/axes refer to.
+
+  Returns:
+    Normalized form of `axis`, i.e. a list with all-positive values.
+  """
+  input_shape = tf.TensorShape(input_shape)
+  rank = input_shape.rank
+  if not rank:
+    raise ValueError(
+        f'Input has undefined rank. Received: input_shape={input_shape}')
+
+  # Convert axis to list and resolve negatives
+  if isinstance(axis, int):
+    axis = [axis]
+  else:
+    axis = list(axis)
+  for idx, x in enumerate(axis):
+    if x < 0:
+      axis[idx] = rank + x
+
+  # Validate axes
+  for x in axis:
+    if x < 0 or x >= rank:
+      raise ValueError(
+          'Invalid value for `axis` argument. '
+          'Expected 0 <= axis < inputs.rank (with '
+          f'inputs.rank={rank}). Received: axis={tuple(axis)}')
+  if len(axis) != len(set(axis)):
+    raise ValueError(f'Duplicate axis: {tuple(axis)}')
+  return axis
+
+
 class ListWrapper:
   """A wrapper for lists to be treated as elements for `nest`."""
 
@@ -549,13 +587,16 @@ def sync_to_numpy_or_python_type(tensors):
     tensors are converted to Numpy arrays.
   """
   if isinstance(tensors, tf.distribute.experimental.coordinator.RemoteValue):
-    return tensors.fetch()
+    tensors = tensors.fetch()
 
   def _to_single_numpy_or_python_type(t):
+    # Don't turn ragged or sparse tensors to NumPy.
     if isinstance(t, tf.Tensor):
-      x = t.numpy()
-      return x.item() if np.ndim(x) == 0 else x
-    return t  # Don't turn ragged or sparse tensors to NumPy.
+      t = t.numpy()
+    # Strings, ragged and sparse tensors don't have .item(). Return them as-is.
+    if not isinstance(t, (np.ndarray, np.generic)):
+      return t
+    return t.item() if np.ndim(t) == 0 else t
 
   return tf.nest.map_structure(_to_single_numpy_or_python_type, tensors)
 

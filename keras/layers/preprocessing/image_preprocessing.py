@@ -61,6 +61,8 @@ class Resizing(base_layer.Layer):
 
   This layer resizes an image input to a target height and width. The input
   should be a 4D (batched) or 3D (unbatched) tensor in `"channels_last"` format.
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and of
+  interger or floating point dtype. By default, the layer will output floats.
 
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
@@ -142,6 +144,9 @@ class CenterCrop(base_layer.Layer):
   return the largest possible window in the image that matches the target aspect
   ratio.
 
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
+
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
 
@@ -217,6 +222,9 @@ class RandomCrop(base_layer.BaseRandomLayer):
   to apply random cropping at inference time, set `training` to True when
   calling the layer.
 
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
+
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
 
@@ -245,7 +253,7 @@ class RandomCrop(base_layer.BaseRandomLayer):
   def call(self, inputs, training=True):
     if training is None:
       training = backend.learning_phase()
-    inputs = utils.ensure_tensor(inputs)
+    inputs = utils.ensure_tensor(inputs, dtype=self.compute_dtype)
     input_shape = tf.shape(inputs)
     h_diff = input_shape[H_AXIS] - self.height
     w_diff = input_shape[W_AXIS] - self.width
@@ -258,10 +266,14 @@ class RandomCrop(base_layer.BaseRandomLayer):
       return tf.image.crop_to_bounding_box(inputs, h_start, w_start,
                                            self.height, self.width)
 
-    outputs = tf.cond(
+    def resize():
+      outputs = smart_resize(inputs, [self.height, self.width])
+      # smart_resize will always output float32, so we need to re-cast.
+      return tf.cast(outputs, self.compute_dtype)
+
+    return tf.cond(
         tf.reduce_all((training, h_diff >= 0, w_diff >= 0)), random_crop,
-        lambda: smart_resize(inputs, [self.height, self.width]))
-    return tf.cast(outputs, self.compute_dtype)
+        resize)
 
   def compute_output_shape(self, input_shape):
     input_shape = tf.TensorShape(input_shape).as_list()
@@ -289,13 +301,15 @@ class Rescaling(base_layer.Layer):
 
   For instance:
 
-  1. To rescale an input in the `[0, 255]` range
+  1. To rescale an input in the ``[0, 255]`` range
   to be in the `[0, 1]` range, you would pass `scale=1./255`.
 
-  2. To rescale an input in the `[0, 255]` range to be in the `[-1, 1]` range,
+  2. To rescale an input in the ``[0, 255]`` range to be in the `[-1, 1]` range,
   you would pass `scale=1./127.5, offset=-1`.
 
-  The rescaling is applied both during training and inference.
+  The rescaling is applied both during training and inference. Inputs can be
+  of integer or floating point dtype, and by default the layer will output
+  floats.
 
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
@@ -348,6 +362,9 @@ class RandomFlip(base_layer.BaseRandomLayer):
   This layer will flip the images horizontally and or vertically based on the
   `mode` attribute. During inference time, the output will be identical to
   input. Call the layer with `training=True` to flip the input.
+
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
 
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
@@ -439,6 +456,9 @@ class RandomTranslation(base_layer.BaseRandomLayer):
 
   This layer will apply random translations to each image during training,
   filling empty space according to `fill_mode`.
+
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
 
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
@@ -771,6 +791,9 @@ class RandomRotation(base_layer.BaseRandomLayer):
   At inference time, the layer does nothing. If you need to apply random
   rotations at inference time, set `training` to True when calling the layer.
 
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
+
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
 
@@ -893,6 +916,9 @@ class RandomZoom(base_layer.BaseRandomLayer):
 
   This layer will randomly zoom in or out on each axis of an image
   independently, filling empty space according to `fill_mode`.
+
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
 
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
@@ -1105,6 +1131,9 @@ class RandomContrast(base_layer.BaseRandomLayer):
   channel and then adjusts each component `x` of each pixel to
   `(x - mean) * contrast_factor + mean`.
 
+  Input pixel values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and
+  of interger or floating point dtype. By default, the layer will output floats.
+
   For an overview and full list of preprocessing layers, see the preprocessing
   [guide](https://www.tensorflow.org/guide/keras/preprocessing_layers).
 
@@ -1179,7 +1208,10 @@ class RandomHeight(base_layer.BaseRandomLayer):
 
   This layer adjusts the height of a batch of images by a random factor.
   The input should be a 3D (unbatched) or 4D (batched) tensor in the
-  `"channels_last"` image data format.
+  `"channels_last"` image data format. Input pixel values can be of any range
+  (e.g. `[0., 1.)` or `[0, 255]`) and of interger or floating point dtype. By
+  default, the layer will output floats.
+
 
   By default, this layer is inactive during inference.
 
@@ -1287,7 +1319,9 @@ class RandomWidth(base_layer.BaseRandomLayer):
 
   This layer will randomly adjusts the width of a batch of images of a
   batch of images by a random factor. The input should be a 3D (unbatched) or
-  4D (batched) tensor in the `"channels_last"` image data format.
+  4D (batched) tensor in the `"channels_last"` image data format. Input pixel
+  values can be of any range (e.g. `[0., 1.)` or `[0, 255]`) and of interger or
+  floating point dtype. By default, the layer will output floats.
 
   By default, this layer is inactive during inference.
 

@@ -17,9 +17,12 @@
 from keras.optimizer_experimental import optimizer
 from keras.utils import generic_utils
 import tensorflow.compat.v2 as tf
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.util.tf_export import keras_export
 
 
 @generic_utils.register_keras_serializable()
+@keras_export('keras.optimizers.experimental.SGD', v1=[])
 class SGD(optimizer.Optimizer):
   r"""Gradient descent (with momentum) optimizer.
 
@@ -54,29 +57,21 @@ class SGD(optimizer.Optimizer):
       descent.
     nesterov: boolean. Whether to apply Nesterov momentum.
       Defaults to `False`.
-    clipnorm: float. If set, the gradient of each weight is individually
-      clipped so that its norm is no higher than this value.
-    clipvalue: float. If set, the gradient of each weight is clipped to be
-      no higher than this value.
-    global_clipnorm: float. If set, the gradient of all weights is clipped
-      so that their global norm is no higher than this value.
-    use_ema: boolean, default to False. If True, exponential moving average
-      (EMA) is applied. EMA consists of computing an exponential moving
-      average of the weights of the model (as the weight values change after
-      each training batch), and periodically overwriting the weights with
-      their moving average.
-    ema_momentum: float, default to 0.99. Only used if `use_ema=True`. This is
-      the momentum to use when computing the EMA of the model's weights:
-      `new_average = ema_momentum * old_average +
-       (1 - ema_momentum) * current_variable_value`.
-    ema_overwrite_frequency: int or None, default to 100. Only used if
-      `use_ema=True`.Every ema_overwrite_frequency steps of iterations, we
-      overwrite the model variable by its stored moving average. If None, we
-      do not overwrite model variables in the middle of training, and users
-      need to explicitly overwrite the model variable by calling
-      `finalize_variable_update()`.
+    clipnorm: see the `clipnorm` argument of `optimizer_experimental.Optimizer`.
+    clipvalue: see the `clipvalue` argument of
+      `optimizer_experimental.Optimizer`.
+    global_clipnorm: see the `global_clipnorm` argument of
+      `optimizer_experimental.Optimizer`.
+    use_ema: see the `use_ema` argument of `optimizer_experimental.Optimizer`.
+    ema_momentum: see the `ema_momentum` argument of
+      `optimizer_experimental.Optimizer`.
+    ema_overwrite_frequency: see the `ema_overwrite_frequency` argument of
+      `optimizer_experimental.Optimizer`.
+    jit_compile: see the `jit_compile` argument of
+      `optimizer_experimental.Optimizer`.
     name: Optional name prefix for the operations created when applying
-      gradients.  Defaults to `"SGD"`.
+      gradients. Defaults to `"SGD"`.
+    **kwargs: see the `**kwargs` argument of `optimizer_experimental.Optimizer`.
 
   Usage:
 
@@ -118,8 +113,10 @@ class SGD(optimizer.Optimizer):
                global_clipnorm=None,
                use_ema=False,
                ema_momentum=0.99,
-               ema_overwrite_frequency=100,
-               name='SGD'):
+               ema_overwrite_frequency=None,
+               jit_compile=False,
+               name='SGD',
+               **kwargs):
     super(SGD, self).__init__(
         name=name,
         clipnorm=clipnorm,
@@ -127,7 +124,9 @@ class SGD(optimizer.Optimizer):
         global_clipnorm=global_clipnorm,
         use_ema=use_ema,
         ema_momentum=ema_momentum,
-        ema_overwrite_frequency=ema_overwrite_frequency)
+        ema_overwrite_frequency=ema_overwrite_frequency,
+        jit_compile=jit_compile,
+        **kwargs)
     self._learning_rate = self._build_learning_rate(learning_rate)
     self.momentum = momentum
     self.nesterov = nesterov

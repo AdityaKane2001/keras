@@ -14,6 +14,8 @@
 # ==============================================================================
 # pylint: disable=invalid-name
 # pylint: disable=missing-docstring
+# pylint: disable=g-classes-have-attributes
+# pylint: disable=g-direct-tensorflow-import
 """RegNet models for Keras.
 
 References:
@@ -24,17 +26,16 @@ References:
   (CVPR 2021)
 """
 
-import tensorflow as tf
-
 from keras import backend
 from keras import layers
 from keras.applications import imagenet_utils
 from keras.engine import training
-from keras.utils import layer_utils
 from keras.utils import data_utils
+from keras.utils import layer_utils
+import tensorflow.compat.v2 as tf
 from tensorflow.python.util.tf_export import keras_export
 
-BASE_WEIGHTS_PATH = "https://storage.googleapis.com/keras-applications/"
+BASE_WEIGHTS_PATH = "https://storage.googleapis.com/tensorflow/keras-applications/regnet/"
 
 WEIGHTS_HASHES = {
     "x002":
@@ -289,11 +290,9 @@ MODEL_CONFIGS = {
 
 BASE_DOCSTRING = """Instantiates the {name} architecture.
 
-  References:
+  Reference:
     - [Designing Network Design Spaces](https://arxiv.org/abs/2003.13678)
     (CVPR 2020)
-    - [Fast and Accurate Model Scaling](https://arxiv.org/abs/2103.06877)
-    (CVPR 2021)
 
   For image classification use cases, see
   [this page for detailed examples](
@@ -305,20 +304,20 @@ BASE_DOCSTRING = """Instantiates the {name} architecture.
 
   Note: Each Keras Application expects a specific kind of input preprocessing.
   For Regnets, preprocessing is included in the model using a `Rescaling` layer.
-  RegNet models expect their inputs to be float or uint8 tensors of pixels with 
+  RegNet models expect their inputs to be float or uint8 tensors of pixels with
   values in the [0-255] range.
 
-  The naming of models is as follows: `RegNet<block_type><flops>` where 
-  `block_type` is one of `(Y, Z)` and `flops` signifies hundred million 
-  floating point operations. For example RegNetY64 corresponds to RegNet with 
-  Y block and 6.4 giga flops (64 hundred million flops). 
+  The naming of models is as follows: `RegNet<block_type><flops>` where
+  `block_type` is one of `(X, Y)` and `flops` signifies hundred million
+  floating point operations. For example RegNetY064 corresponds to RegNet with
+  Y block and 6.4 giga flops (64 hundred million flops).
 
   Args:
     include_top: Whether to include the fully-connected
         layer at the top of the network. Defaults to True.
     weights: One of `None` (random initialization),
-          "imagenet" (pre-training on ImageNet),
-          or the path to the weights file to be loaded. Defaults to "imagenet".
+          `"imagenet"` (pre-training on ImageNet), or the path to the weights
+          file to be loaded. Defaults to `"imagenet"`.
     input_tensor: Optional Keras tensor
         (i.e. output of `layers.Input()`)
         to use as image input for the model.
@@ -343,7 +342,7 @@ BASE_DOCSTRING = """Instantiates the {name} architecture.
     classifier_activation: A `str` or callable. The activation function to use
         on the "top" layer. Ignored unless `include_top=True`. Set
         `classifier_activation=None` to return the logits of the "top" layer.
-        Defaults to "softmax".
+        Defaults to `"softmax"`.
         When loading pretrained weights, `classifier_activation` can only
         be `None` or `"softmax"`.
 
@@ -353,12 +352,11 @@ BASE_DOCSTRING = """Instantiates the {name} architecture.
 
 
 def PreStem(name=None):
-  """
-  Rescales and normalizes inputs to [0,1] and ImageNet mean and std.
-  
+  """Rescales and normalizes inputs to [0,1] and ImageNet mean and std.
+
   Args:
     name: name prefix
-    
+
   Returns:
     Rescaled and normalized tensor
   """
@@ -367,18 +365,17 @@ def PreStem(name=None):
 
   def apply(x):
     x = layers.Rescaling(scale=1. / 255., name=name + "_prestem_rescaling")(x)
-
     return x
 
   return apply
 
 
 def Stem(name=None):
-  """
-  Implementation of RegNet stem. (Common to all model variants)
-  
+  """Implementation of RegNet stem.
+
+  (Common to all model variants)
   Args:
-    name: name prefix   
+    name: name prefix
 
   Returns:
     Output tensor of the Stem
@@ -387,48 +384,48 @@ def Stem(name=None):
     name = "stem" + str(backend.get_uid("stem"))
 
   def apply(x):
-    x = layers.Conv2D(32, (3, 3),
-                      strides=2,
-                      use_bias=False,
-                      padding="same",
-                      kernel_initializer="he_normal",
-                      name=name + "_stem_conv")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_stem_bn")(x)
+    x = layers.Conv2D(
+        32, (3, 3),
+        strides=2,
+        use_bias=False,
+        padding="same",
+        kernel_initializer="he_normal",
+        name=name + "_stem_conv")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_stem_bn")(x)
     x = layers.ReLU(name=name + "_stem_relu")(x)
-
     return x
 
   return apply
 
 
 def SqueezeAndExciteBlock(filters_in, se_filters, name=None):
-  """
-  Implements the Squeeze and excite block (https://arxiv.org/abs/1709.01507)
-  
+  """Implements the Squeeze and excite block (https://arxiv.org/abs/1709.01507).
+
   Args:
     filters_in: input filters to the block
     se_filters: filters to squeeze to
     name: name prefix
-  
+
   Returns:
-    A function object   
+    A function object
   """
   if name is None:
     name = str(backend.get_uid("squeeze_and_excite"))
 
   def apply(inputs):
-    x = layers.GlobalAveragePooling2D(name=name + "_squeeze_and_excite_gap",
-                                      keepdims=True)(inputs)
-    x = layers.Conv2D(se_filters, (1, 1),
-                      activation="relu",
-                      kernel_initializer="he_normal",
-                      name=name + "_squeeze_and_excite_squeeze")(x)
-    x = layers.Conv2D(filters_in, (1, 1),
-                      activation="sigmoid",
-                      kernel_initializer="he_normal",
-                      name=name + "_squeeze_and_excite_excite")(x)
+    x = layers.GlobalAveragePooling2D(
+        name=name + "_squeeze_and_excite_gap", keepdims=True)(inputs)
+    x = layers.Conv2D(
+        se_filters, (1, 1),
+        activation="relu",
+        kernel_initializer="he_normal",
+        name=name + "_squeeze_and_excite_squeeze")(x)
+    x = layers.Conv2D(
+        filters_in, (1, 1),
+        activation="sigmoid",
+        kernel_initializer="he_normal",
+        name=name + "_squeeze_and_excite_excite")(x)
     x = tf.math.multiply(x, inputs)
     return x
 
@@ -436,19 +433,18 @@ def SqueezeAndExciteBlock(filters_in, se_filters, name=None):
 
 
 def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
-  """
-  Implementation of X Block. 
-  Reference: [Designing Network Design Spaces](https://arxiv.org/abs/2003.13678)
+  """Implementation of X Block.
 
+  Reference: [Designing Network Design
+  Spaces](https://arxiv.org/abs/2003.13678)
   Args:
     filters_in: filters in the input tensor
     filters_out: filters in the output tensor
     group_width: group width
     stride: stride
     name: name prefix
-
-  Return:
-    Output tensor of the block 
+  Returns:
+    Output tensor of the block
   """
   if name is None:
     name = str(backend.get_uid("xblock"))
@@ -464,49 +460,49 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
     groups = filters_out // group_width
 
     if stride != 1:
-      skip = layers.Conv2D(filters_out, (1, 1),
-                           strides=stride,
-                           use_bias=False,
-                           kernel_initializer="he_normal",
-                           name=name + "_skip_1x1")(inputs)
-      skip = layers.BatchNormalization(momentum=0.9,
-                                       epsilon=1e-5,
-                                       name=name + "_skip_bn")(skip)
+      skip = layers.Conv2D(
+          filters_out, (1, 1),
+          strides=stride,
+          use_bias=False,
+          kernel_initializer="he_normal",
+          name=name + "_skip_1x1")(inputs)
+      skip = layers.BatchNormalization(
+          momentum=0.9, epsilon=1e-5, name=name + "_skip_bn")(skip)
     else:
       skip = inputs
 
     # Build block
     # conv_1x1_1
-    x = layers.Conv2D(filters_out, (1, 1),
-                      use_bias=False,
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_1x1_1")(inputs)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_1x1_1_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (1, 1),
+        use_bias=False,
+        kernel_initializer="he_normal",
+        name=name + "_conv_1x1_1")(inputs)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_1_bn")(x)
     x = layers.ReLU(name=name + "_conv_1x1_1_relu")(x)
 
     # conv_3x3
-    x = layers.Conv2D(filters_out, (3, 3),
-                      use_bias=False,
-                      strides=stride,
-                      groups=groups,
-                      padding="same",
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_3x3")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_3x3_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (3, 3),
+        use_bias=False,
+        strides=stride,
+        groups=groups,
+        padding="same",
+        kernel_initializer="he_normal",
+        name=name + "_conv_3x3")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_3x3_bn")(x)
     x = layers.ReLU(name=name + "_conv_3x3_relu")(x)
 
     # conv_1x1_2
-    x = layers.Conv2D(filters_out, (1, 1),
-                      use_bias=False,
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_1x1_2")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_1x1_2_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (1, 1),
+        use_bias=False,
+        kernel_initializer="he_normal",
+        name=name + "_conv_1x1_2")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_2_bn")(x)
 
     x = layers.ReLU(name=name + "_exit_relu")(x + skip)
 
@@ -521,10 +517,10 @@ def YBlock(filters_in,
            stride=1,
            squeeze_excite_ratio=0.25,
            name=None):
-  """
-  Implementation of Y Block. 
-  Reference: [Designing Network Design Spaces](https://arxiv.org/abs/2003.13678)
+  """Implementation of Y Block.
 
+  Reference: [Designing Network Design
+  Spaces](https://arxiv.org/abs/2003.13678)
   Args:
     filters_in: filters in the input tensor
     filters_out: filters in the output tensor
@@ -532,9 +528,8 @@ def YBlock(filters_in,
     stride: stride
     squeeze_excite_ratio: expansion ration for Squeeze and Excite block
     name: name prefix
-
-  Return:
-    Output tensor of the block 
+  Returns:
+    Output tensor of the block
   """
   if name is None:
     name = str(backend.get_uid("yblock"))
@@ -550,52 +545,52 @@ def YBlock(filters_in,
     se_filters = int(filters_in * squeeze_excite_ratio)
 
     if stride != 1:
-      skip = layers.Conv2D(filters_out, (1, 1),
-                           strides=stride,
-                           use_bias=False,
-                           kernel_initializer="he_normal",
-                           name=name + "_skip_1x1")(inputs)
-      skip = layers.BatchNormalization(momentum=0.9,
-                                       epsilon=1e-5,
-                                       name=name + "_skip_bn")(skip)
+      skip = layers.Conv2D(
+          filters_out, (1, 1),
+          strides=stride,
+          use_bias=False,
+          kernel_initializer="he_normal",
+          name=name + "_skip_1x1")(inputs)
+      skip = layers.BatchNormalization(
+          momentum=0.9, epsilon=1e-5, name=name + "_skip_bn")(skip)
     else:
       skip = inputs
 
     # Build block
     # conv_1x1_1
-    x = layers.Conv2D(filters_out, (1, 1),
-                      use_bias=False,
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_1x1_1")(inputs)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_1x1_1_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (1, 1),
+        use_bias=False,
+        kernel_initializer="he_normal",
+        name=name + "_conv_1x1_1")(inputs)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_1_bn")(x)
     x = layers.ReLU(name=name + "_conv_1x1_1_relu")(x)
 
     # conv_3x3
-    x = layers.Conv2D(filters_out, (3, 3),
-                      use_bias=False,
-                      strides=stride,
-                      groups=groups,
-                      padding="same",
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_3x3")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_3x3_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (3, 3),
+        use_bias=False,
+        strides=stride,
+        groups=groups,
+        padding="same",
+        kernel_initializer="he_normal",
+        name=name + "_conv_3x3")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_3x3_bn")(x)
     x = layers.ReLU(name=name + "_conv_3x3_relu")(x)
 
     # Squeeze-Excitation block
     x = SqueezeAndExciteBlock(filters_out, se_filters, name=name)(x)
 
     # conv_1x1_2
-    x = layers.Conv2D(filters_out, (1, 1),
-                      use_bias=False,
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_1x1_2")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_1x1_2_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (1, 1),
+        use_bias=False,
+        kernel_initializer="he_normal",
+        name=name + "_conv_1x1_2")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_2_bn")(x)
 
     x = layers.ReLU(name=name + "_exit_relu")(x + skip)
 
@@ -611,21 +606,18 @@ def ZBlock(filters_in,
            squeeze_excite_ratio=0.25,
            bottleneck_ratio=0.25,
            name=None):
-  """
-  Implementation of Z block
-  Reference: [Fast and Accurate Model Scaling](https://arxiv.org/abs/2103.06877).
-  
+  """Implementation of Z block Reference: [Fast and Accurate Model Scaling](https://arxiv.org/abs/2103.06877).
+
   Args:
     filters_in: filters in the input tensor
     filters_out: filters in the output tensor
     group_width: group width
     stride: stride
     squeeze_excite_ratio: expansion ration for Squeeze and Excite block
-    bottleneck_ratio: inverted bottleneck ratio 
+    bottleneck_ratio: inverted bottleneck ratio
     name: name prefix
-
-  Return:
-    Output tensor of the block 
+  Returns:
+    Output tensor of the block
   """
   if name is None:
     name = str(backend.get_uid("zblock"))
@@ -644,39 +636,39 @@ def ZBlock(filters_in,
 
     # Build block
     # conv_1x1_1
-    x = layers.Conv2D(inv_btlneck_filters, (1, 1),
-                      use_bias=False,
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_1x1_1")(inputs)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_1x1_1_bn")(x)
+    x = layers.Conv2D(
+        inv_btlneck_filters, (1, 1),
+        use_bias=False,
+        kernel_initializer="he_normal",
+        name=name + "_conv_1x1_1")(inputs)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_1_bn")(x)
     x = tf.nn.silu(x)
 
     # conv_3x3
-    x = layers.Conv2D(inv_btlneck_filters, (3, 3),
-                      use_bias=False,
-                      strides=stride,
-                      groups=groups,
-                      padding="same",
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_3x3")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_3x3_bn")(x)
+    x = layers.Conv2D(
+        inv_btlneck_filters, (3, 3),
+        use_bias=False,
+        strides=stride,
+        groups=groups,
+        padding="same",
+        kernel_initializer="he_normal",
+        name=name + "_conv_3x3")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_3x3_bn")(x)
     x = tf.nn.silu(x)
 
     # Squeeze-Excitation block
     x = SqueezeAndExciteBlock(inv_btlneck_filters, se_filters, name=name)
 
     # conv_1x1_2
-    x = layers.Conv2D(filters_out, (1, 1),
-                      use_bias=False,
-                      kernel_initializer="he_normal",
-                      name=name + "_conv_1x1_2")(x)
-    x = layers.BatchNormalization(momentum=0.9,
-                                  epsilon=1e-5,
-                                  name=name + "_conv_1x1_2_bn")(x)
+    x = layers.Conv2D(
+        filters_out, (1, 1),
+        use_bias=False,
+        kernel_initializer="he_normal",
+        name=name + "_conv_1x1_2")(x)
+    x = layers.BatchNormalization(
+        momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_2_bn")(x)
 
     if stride != 1:
       return x
@@ -687,8 +679,7 @@ def ZBlock(filters_in,
 
 
 def Stage(block_type, depth, group_width, filters_in, filters_out, name=None):
-  """
-  Implementation of Stage in RegNet.
+  """Implementation of Stage in RegNet.
 
   Args:
     block_type: must be one of "X", "Y", "Z"
@@ -707,38 +698,35 @@ def Stage(block_type, depth, group_width, filters_in, filters_out, name=None):
   def apply(inputs):
     x = inputs
     if block_type == "X":
-      x = XBlock(filters_in,
-                 filters_out,
-                 group_width,
-                 stride=2,
-                 name=f"{name}_XBlock_0")(x)
+      x = XBlock(
+          filters_in,
+          filters_out,
+          group_width,
+          stride=2,
+          name=f"{name}_XBlock_0")(x)
       for i in range(1, depth):
-        x = XBlock(filters_out,
-                   filters_out,
-                   group_width,
-                   name=f"{name}_XBlock_{i}")(x)
+        x = XBlock(
+            filters_out, filters_out, group_width, name=f"{name}_XBlock_{i}")(x)
     elif block_type == "Y":
-      x = YBlock(filters_in,
-                 filters_out,
-                 group_width,
-                 stride=2,
-                 name=name + "_YBlock_0")(x)
+      x = YBlock(
+          filters_in,
+          filters_out,
+          group_width,
+          stride=2,
+          name=name + "_YBlock_0")(x)
       for i in range(1, depth):
-        x = YBlock(filters_out,
-                   filters_out,
-                   group_width,
-                   name=f"{name}_YBlock_{i}")(x)
+        x = YBlock(
+            filters_out, filters_out, group_width, name=f"{name}_YBlock_{i}")(x)
     elif block_type == "Z":
-      x = ZBlock(filters_in,
-                 filters_out,
-                 group_width,
-                 stride=2,
-                 name=f"{name}_ZBlock_0")(x)
+      x = ZBlock(
+          filters_in,
+          filters_out,
+          group_width,
+          stride=2,
+          name=f"{name}_ZBlock_0")(x)
       for i in range(1, depth):
-        x = ZBlock(filters_out,
-                   filters_out,
-                   group_width,
-                   name=f"{name}_ZBlock_{i}")(x)
+        x = ZBlock(
+            filters_out, filters_out, group_width, name=f"{name}_ZBlock_{i}")(x)
     else:
       raise NotImplementedError(f"Block type `{block_type}` not recognized."
                                 f"block_type must be one of (`X`, `Y`, `Z`). ")
@@ -748,15 +736,14 @@ def Stage(block_type, depth, group_width, filters_in, filters_out, name=None):
 
 
 def Head(num_classes=1000, name=None):
-  """
-  Implementation of classification head of RegNet
-  
+  """Implementation of classification head of RegNet.
+
   Args:
-    x: Input tensor
     num_classes: number of classes for Dense layer
-  
+    name: name prefix
+
   Returns:
-    Output logits tensor. 
+    Output logits tensor.
   """
   if name is None:
     name = str(backend.get_uid("head"))
@@ -783,54 +770,45 @@ def RegNet(depths,
            pooling=None,
            classes=1000,
            classifier_activation="softmax"):
-  """ 
-  Instantiates RegNet architecture given specific configuration.
+  """Instantiates RegNet architecture given specific configuration.
 
   Args:
-    depths: An iterable containing depths for each individual stages. 
-    widths: An iterable containing output channel width of each individual 
+    depths: An iterable containing depths for each individual stages.
+    widths: An iterable containing output channel width of each individual
       stages
-    group_width: Number of channels to be used in each group. See grouped 
+    group_width: Number of channels to be used in each group. See grouped
       convolutions for more information.
     block_type: Must be one of `{"X", "Y", "Z"}`. For more details see the
-      papers "Designing network design spaces" and "Fast and Accurate Model 
+      papers "Designing network design spaces" and "Fast and Accurate Model
       Scaling"
-    default_size: Default input image size. 
+    default_size: Default input image size.
     model_name: An optional name for the model.
-    include_preprocessing: boolean denoting whther to include preprocessing in 
+    include_preprocessing: boolean denoting whther to include preprocessing in
       the model
-    include_top: Boolean denoting whether to include classification head to 
-      the model.
-    weights: one of `None` (random initialization),
-      "imagenet" (pre-training on ImageNet),
-      or the path to the weights file to be loaded.
-    input_tensor: optional Keras tensor
-      (i.e. output of `layers.Input()`)
-      to use as image input for the model.
-    input_shape: optional shape tuple, only to be specified
-      if `include_top` is False.
-      It should have exactly 3 inputs channels.
-    pooling: optional pooling mode for feature extraction
-      when `include_top` is `False`.
-      - `None` means that the output of the model will be
-          the 4D tensor output of the
-          last convolutional layer.
-      - `avg` means that global average pooling
-          will be applied to the output of the
-          last convolutional layer, and thus
-          the output of the model will be a 2D tensor.
-      - `max` means that global max pooling will
-          be applied.
-    classes: optional number of classes to classify images
-      into, only to be specified if `include_top` is True, and
-      if no `weights` argument is specified.
+    include_top: Boolean denoting whether to include classification head to the
+      model.
+    weights: one of `None` (random initialization), "imagenet" (pre-training on
+      ImageNet), or the path to the weights file to be loaded.
+    input_tensor: optional Keras tensor (i.e. output of `layers.Input()`) to use
+      as image input for the model.
+    input_shape: optional shape tuple, only to be specified if `include_top` is
+      False. It should have exactly 3 inputs channels.
+    pooling: optional pooling mode for feature extraction when `include_top` is
+      `False`. - `None` means that the output of the model will be the 4D tensor
+      output of the last convolutional layer. - `avg` means that global average
+      pooling will be applied to the output of the last convolutional layer, and
+      thus the output of the model will be a 2D tensor. - `max` means that
+      global max pooling will be applied.
+    classes: optional number of classes to classify images into, only to be
+      specified if `include_top` is True, and if no `weights` argument is
+      specified.
     classifier_activation: A `str` or callable. The activation function to use
       on the "top" layer. Ignored unless `include_top=True`. Set
-      `classifier_activation=None` to return the logits of the "top" layer.        
-  
+      `classifier_activation=None` to return the logits of the "top" layer.
+
   Returns:
     A `keras.Model` instance.
-  
+
   Raises:
       ValueError: in case of invalid argument for `weights`,
         or invalid input shape.
@@ -838,7 +816,7 @@ def RegNet(depths,
         using a pretrained top layer.
       ValueError: if `include_top` is True but `num_classes` is not 1000.
       ValueError: if `block_type` is not one of `{"X", "Y", "Z"}`
-  
+
   """
   if not (weights in {"imagenet", None} or tf.io.gfile.exists(weights)):
     raise ValueError("The `weights` argument should be either "
@@ -883,12 +861,13 @@ def RegNet(depths,
     depth = depths[num_stage]
     out_channels = widths[num_stage]
 
-    x = Stage(block_type,
-              depth,
-              group_width,
-              in_channels,
-              out_channels,
-              name=model_name + "_Stage_" + str(num_stage))(x)
+    x = Stage(
+        block_type,
+        depth,
+        group_width,
+        in_channels,
+        out_channels,
+        name=model_name + "_Stage_" + str(num_stage))(x)
     in_channels = out_channels
 
   if include_top:
@@ -912,10 +891,11 @@ def RegNet(depths,
       file_suffix = "_notop.h5"
       file_hash = WEIGHTS_HASHES[model_name[-4:]][1]
     file_name = model_name + file_suffix
-    weights_path = data_utils.get_file(file_name,
-                                       BASE_WEIGHTS_PATH + file_name,
-                                       cache_subdir="models",
-                                       file_hash=file_hash)
+    weights_path = data_utils.get_file(
+        file_name,
+        BASE_WEIGHTS_PATH + file_name,
+        cache_subdir="models",
+        file_hash=file_hash)
     model.load_weights(weights_path)
   elif weights is not None:
     model.load_weights(weights)
@@ -931,26 +911,27 @@ def RegNet(depths,
 def RegNetX002(model_name="regnetx002",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x002"]["depths"],
-                MODEL_CONFIGS["x002"]["widths"],
-                MODEL_CONFIGS["x002"]["group_width"],
-                MODEL_CONFIGS["x002"]["block_type"],
-                MODEL_CONFIGS["x002"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x002"]["depths"],
+      MODEL_CONFIGS["x002"]["widths"],
+      MODEL_CONFIGS["x002"]["group_width"],
+      MODEL_CONFIGS["x002"]["block_type"],
+      MODEL_CONFIGS["x002"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX004",
@@ -958,26 +939,27 @@ def RegNetX002(model_name="regnetx002",
 def RegNetX004(model_name="regnetx004",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x004"]["depths"],
-                MODEL_CONFIGS["x004"]["widths"],
-                MODEL_CONFIGS["x004"]["group_width"],
-                MODEL_CONFIGS["x004"]["block_type"],
-                MODEL_CONFIGS["x004"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x004"]["depths"],
+      MODEL_CONFIGS["x004"]["widths"],
+      MODEL_CONFIGS["x004"]["group_width"],
+      MODEL_CONFIGS["x004"]["block_type"],
+      MODEL_CONFIGS["x004"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX006",
@@ -985,26 +967,27 @@ def RegNetX004(model_name="regnetx004",
 def RegNetX006(model_name="regnetx006",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x006"]["depths"],
-                MODEL_CONFIGS["x006"]["widths"],
-                MODEL_CONFIGS["x006"]["group_width"],
-                MODEL_CONFIGS["x006"]["block_type"],
-                MODEL_CONFIGS["x006"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x006"]["depths"],
+      MODEL_CONFIGS["x006"]["widths"],
+      MODEL_CONFIGS["x006"]["group_width"],
+      MODEL_CONFIGS["x006"]["block_type"],
+      MODEL_CONFIGS["x006"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX008",
@@ -1012,26 +995,27 @@ def RegNetX006(model_name="regnetx006",
 def RegNetX008(model_name="regnetx008",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x008"]["depths"],
-                MODEL_CONFIGS["x008"]["widths"],
-                MODEL_CONFIGS["x008"]["group_width"],
-                MODEL_CONFIGS["x008"]["block_type"],
-                MODEL_CONFIGS["x008"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x008"]["depths"],
+      MODEL_CONFIGS["x008"]["widths"],
+      MODEL_CONFIGS["x008"]["group_width"],
+      MODEL_CONFIGS["x008"]["block_type"],
+      MODEL_CONFIGS["x008"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX016",
@@ -1039,26 +1023,27 @@ def RegNetX008(model_name="regnetx008",
 def RegNetX016(model_name="regnetx016",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x016"]["depths"],
-                MODEL_CONFIGS["x016"]["widths"],
-                MODEL_CONFIGS["x016"]["group_width"],
-                MODEL_CONFIGS["x016"]["block_type"],
-                MODEL_CONFIGS["x016"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x016"]["depths"],
+      MODEL_CONFIGS["x016"]["widths"],
+      MODEL_CONFIGS["x016"]["group_width"],
+      MODEL_CONFIGS["x016"]["block_type"],
+      MODEL_CONFIGS["x016"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX032",
@@ -1066,26 +1051,27 @@ def RegNetX016(model_name="regnetx016",
 def RegNetX032(model_name="regnetx032",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x032"]["depths"],
-                MODEL_CONFIGS["x032"]["widths"],
-                MODEL_CONFIGS["x032"]["group_width"],
-                MODEL_CONFIGS["x032"]["block_type"],
-                MODEL_CONFIGS["x032"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x032"]["depths"],
+      MODEL_CONFIGS["x032"]["widths"],
+      MODEL_CONFIGS["x032"]["group_width"],
+      MODEL_CONFIGS["x032"]["block_type"],
+      MODEL_CONFIGS["x032"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX040",
@@ -1093,26 +1079,27 @@ def RegNetX032(model_name="regnetx032",
 def RegNetX040(model_name="regnetx040",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x040"]["depths"],
-                MODEL_CONFIGS["x040"]["widths"],
-                MODEL_CONFIGS["x040"]["group_width"],
-                MODEL_CONFIGS["x040"]["block_type"],
-                MODEL_CONFIGS["x040"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x040"]["depths"],
+      MODEL_CONFIGS["x040"]["widths"],
+      MODEL_CONFIGS["x040"]["group_width"],
+      MODEL_CONFIGS["x040"]["block_type"],
+      MODEL_CONFIGS["x040"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX064",
@@ -1120,26 +1107,27 @@ def RegNetX040(model_name="regnetx040",
 def RegNetX064(model_name="regnetx064",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x064"]["depths"],
-                MODEL_CONFIGS["x064"]["widths"],
-                MODEL_CONFIGS["x064"]["group_width"],
-                MODEL_CONFIGS["x064"]["block_type"],
-                MODEL_CONFIGS["x064"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x064"]["depths"],
+      MODEL_CONFIGS["x064"]["widths"],
+      MODEL_CONFIGS["x064"]["group_width"],
+      MODEL_CONFIGS["x064"]["block_type"],
+      MODEL_CONFIGS["x064"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX080",
@@ -1147,26 +1135,27 @@ def RegNetX064(model_name="regnetx064",
 def RegNetX080(model_name="regnetx080",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x080"]["depths"],
-                MODEL_CONFIGS["x080"]["widths"],
-                MODEL_CONFIGS["x080"]["group_width"],
-                MODEL_CONFIGS["x080"]["block_type"],
-                MODEL_CONFIGS["x080"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x080"]["depths"],
+      MODEL_CONFIGS["x080"]["widths"],
+      MODEL_CONFIGS["x080"]["group_width"],
+      MODEL_CONFIGS["x080"]["block_type"],
+      MODEL_CONFIGS["x080"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX120",
@@ -1174,26 +1163,27 @@ def RegNetX080(model_name="regnetx080",
 def RegNetX120(model_name="regnetx120",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x120"]["depths"],
-                MODEL_CONFIGS["x120"]["widths"],
-                MODEL_CONFIGS["x120"]["group_width"],
-                MODEL_CONFIGS["x120"]["block_type"],
-                MODEL_CONFIGS["x120"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x120"]["depths"],
+      MODEL_CONFIGS["x120"]["widths"],
+      MODEL_CONFIGS["x120"]["group_width"],
+      MODEL_CONFIGS["x120"]["block_type"],
+      MODEL_CONFIGS["x120"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX160",
@@ -1201,26 +1191,27 @@ def RegNetX120(model_name="regnetx120",
 def RegNetX160(model_name="regnetx160",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x160"]["depths"],
-                MODEL_CONFIGS["x160"]["widths"],
-                MODEL_CONFIGS["x160"]["group_width"],
-                MODEL_CONFIGS["x160"]["block_type"],
-                MODEL_CONFIGS["x160"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x160"]["depths"],
+      MODEL_CONFIGS["x160"]["widths"],
+      MODEL_CONFIGS["x160"]["group_width"],
+      MODEL_CONFIGS["x160"]["block_type"],
+      MODEL_CONFIGS["x160"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetX320",
@@ -1228,26 +1219,27 @@ def RegNetX160(model_name="regnetx160",
 def RegNetX320(model_name="regnetx320",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["x320"]["depths"],
-                MODEL_CONFIGS["x320"]["widths"],
-                MODEL_CONFIGS["x320"]["group_width"],
-                MODEL_CONFIGS["x320"]["block_type"],
-                MODEL_CONFIGS["x320"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["x320"]["depths"],
+      MODEL_CONFIGS["x320"]["widths"],
+      MODEL_CONFIGS["x320"]["group_width"],
+      MODEL_CONFIGS["x320"]["block_type"],
+      MODEL_CONFIGS["x320"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY002",
@@ -1255,26 +1247,27 @@ def RegNetX320(model_name="regnetx320",
 def RegNetY002(model_name="regnety002",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y002"]["depths"],
-                MODEL_CONFIGS["y002"]["widths"],
-                MODEL_CONFIGS["y002"]["group_width"],
-                MODEL_CONFIGS["y002"]["block_type"],
-                MODEL_CONFIGS["y002"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y002"]["depths"],
+      MODEL_CONFIGS["y002"]["widths"],
+      MODEL_CONFIGS["y002"]["group_width"],
+      MODEL_CONFIGS["y002"]["block_type"],
+      MODEL_CONFIGS["y002"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY004",
@@ -1282,26 +1275,27 @@ def RegNetY002(model_name="regnety002",
 def RegNetY004(model_name="regnety004",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y004"]["depths"],
-                MODEL_CONFIGS["y004"]["widths"],
-                MODEL_CONFIGS["y004"]["group_width"],
-                MODEL_CONFIGS["y004"]["block_type"],
-                MODEL_CONFIGS["y004"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y004"]["depths"],
+      MODEL_CONFIGS["y004"]["widths"],
+      MODEL_CONFIGS["y004"]["group_width"],
+      MODEL_CONFIGS["y004"]["block_type"],
+      MODEL_CONFIGS["y004"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY006",
@@ -1309,26 +1303,27 @@ def RegNetY004(model_name="regnety004",
 def RegNetY006(model_name="regnety006",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y006"]["depths"],
-                MODEL_CONFIGS["y006"]["widths"],
-                MODEL_CONFIGS["y006"]["group_width"],
-                MODEL_CONFIGS["y006"]["block_type"],
-                MODEL_CONFIGS["y006"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y006"]["depths"],
+      MODEL_CONFIGS["y006"]["widths"],
+      MODEL_CONFIGS["y006"]["group_width"],
+      MODEL_CONFIGS["y006"]["block_type"],
+      MODEL_CONFIGS["y006"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY008",
@@ -1336,26 +1331,27 @@ def RegNetY006(model_name="regnety006",
 def RegNetY008(model_name="regnety008",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y008"]["depths"],
-                MODEL_CONFIGS["y008"]["widths"],
-                MODEL_CONFIGS["y008"]["group_width"],
-                MODEL_CONFIGS["y008"]["block_type"],
-                MODEL_CONFIGS["y008"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y008"]["depths"],
+      MODEL_CONFIGS["y008"]["widths"],
+      MODEL_CONFIGS["y008"]["group_width"],
+      MODEL_CONFIGS["y008"]["block_type"],
+      MODEL_CONFIGS["y008"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY016",
@@ -1363,26 +1359,27 @@ def RegNetY008(model_name="regnety008",
 def RegNetY016(model_name="regnety016",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y016"]["depths"],
-                MODEL_CONFIGS["y016"]["widths"],
-                MODEL_CONFIGS["y016"]["group_width"],
-                MODEL_CONFIGS["y016"]["block_type"],
-                MODEL_CONFIGS["y016"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y016"]["depths"],
+      MODEL_CONFIGS["y016"]["widths"],
+      MODEL_CONFIGS["y016"]["group_width"],
+      MODEL_CONFIGS["y016"]["block_type"],
+      MODEL_CONFIGS["y016"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY032",
@@ -1390,26 +1387,27 @@ def RegNetY016(model_name="regnety016",
 def RegNetY032(model_name="regnety032",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y032"]["depths"],
-                MODEL_CONFIGS["y032"]["widths"],
-                MODEL_CONFIGS["y032"]["group_width"],
-                MODEL_CONFIGS["y032"]["block_type"],
-                MODEL_CONFIGS["y032"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y032"]["depths"],
+      MODEL_CONFIGS["y032"]["widths"],
+      MODEL_CONFIGS["y032"]["group_width"],
+      MODEL_CONFIGS["y032"]["block_type"],
+      MODEL_CONFIGS["y032"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY040",
@@ -1417,26 +1415,27 @@ def RegNetY032(model_name="regnety032",
 def RegNetY040(model_name="regnety040",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y040"]["depths"],
-                MODEL_CONFIGS["y040"]["widths"],
-                MODEL_CONFIGS["y040"]["group_width"],
-                MODEL_CONFIGS["y040"]["block_type"],
-                MODEL_CONFIGS["y040"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y040"]["depths"],
+      MODEL_CONFIGS["y040"]["widths"],
+      MODEL_CONFIGS["y040"]["group_width"],
+      MODEL_CONFIGS["y040"]["block_type"],
+      MODEL_CONFIGS["y040"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY064",
@@ -1444,26 +1443,27 @@ def RegNetY040(model_name="regnety040",
 def RegNetY064(model_name="regnety064",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y064"]["depths"],
-                MODEL_CONFIGS["y064"]["widths"],
-                MODEL_CONFIGS["y064"]["group_width"],
-                MODEL_CONFIGS["y064"]["block_type"],
-                MODEL_CONFIGS["y064"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y064"]["depths"],
+      MODEL_CONFIGS["y064"]["widths"],
+      MODEL_CONFIGS["y064"]["group_width"],
+      MODEL_CONFIGS["y064"]["block_type"],
+      MODEL_CONFIGS["y064"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY080",
@@ -1471,26 +1471,27 @@ def RegNetY064(model_name="regnety064",
 def RegNetY080(model_name="regnety080",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y080"]["depths"],
-                MODEL_CONFIGS["y080"]["widths"],
-                MODEL_CONFIGS["y080"]["group_width"],
-                MODEL_CONFIGS["y080"]["block_type"],
-                MODEL_CONFIGS["y080"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y080"]["depths"],
+      MODEL_CONFIGS["y080"]["widths"],
+      MODEL_CONFIGS["y080"]["group_width"],
+      MODEL_CONFIGS["y080"]["block_type"],
+      MODEL_CONFIGS["y080"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY120",
@@ -1498,26 +1499,27 @@ def RegNetY080(model_name="regnety080",
 def RegNetY120(model_name="regnety120",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y120"]["depths"],
-                MODEL_CONFIGS["y120"]["widths"],
-                MODEL_CONFIGS["y120"]["group_width"],
-                MODEL_CONFIGS["y120"]["block_type"],
-                MODEL_CONFIGS["y120"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y120"]["depths"],
+      MODEL_CONFIGS["y120"]["widths"],
+      MODEL_CONFIGS["y120"]["group_width"],
+      MODEL_CONFIGS["y120"]["block_type"],
+      MODEL_CONFIGS["y120"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY160",
@@ -1525,26 +1527,27 @@ def RegNetY120(model_name="regnety120",
 def RegNetY160(model_name="regnety160",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y160"]["depths"],
-                MODEL_CONFIGS["y160"]["widths"],
-                MODEL_CONFIGS["y160"]["group_width"],
-                MODEL_CONFIGS["y160"]["block_type"],
-                MODEL_CONFIGS["y160"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y160"]["depths"],
+      MODEL_CONFIGS["y160"]["widths"],
+      MODEL_CONFIGS["y160"]["group_width"],
+      MODEL_CONFIGS["y160"]["block_type"],
+      MODEL_CONFIGS["y160"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 @keras_export("keras.applications.regnet.RegNetY320",
@@ -1552,26 +1555,27 @@ def RegNetY160(model_name="regnety160",
 def RegNetY320(model_name="regnety320",
                include_top=True,
                include_preprocessing=True,
-               weights=None,
+               weights="imagenet",
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               classifier_activation='softmax'):
-  return RegNet(MODEL_CONFIGS["y320"]["depths"],
-                MODEL_CONFIGS["y320"]["widths"],
-                MODEL_CONFIGS["y320"]["group_width"],
-                MODEL_CONFIGS["y320"]["block_type"],
-                MODEL_CONFIGS["y320"]["default_size"],
-                model_name=model_name,
-                include_top=include_top,
-                include_preprocessing=include_preprocessing,
-                weights=weights,
-                input_tensor=input_tensor,
-                input_shape=input_shape,
-                pooling=pooling,
-                classes=classes,
-                classifier_activation=classifier_activation)
+               classifier_activation="softmax"):
+  return RegNet(
+      MODEL_CONFIGS["y320"]["depths"],
+      MODEL_CONFIGS["y320"]["widths"],
+      MODEL_CONFIGS["y320"]["group_width"],
+      MODEL_CONFIGS["y320"]["block_type"],
+      MODEL_CONFIGS["y320"]["default_size"],
+      model_name=model_name,
+      include_top=include_top,
+      include_preprocessing=include_preprocessing,
+      weights=weights,
+      input_tensor=input_tensor,
+      input_shape=input_shape,
+      pooling=pooling,
+      classes=classes,
+      classifier_activation=classifier_activation)
 
 
 RegNetX002.__doc__ = BASE_DOCSTRING.format(name="RegNetX002")
@@ -1601,7 +1605,7 @@ RegNetY160.__doc__ = BASE_DOCSTRING.format(name="RegNetY160")
 RegNetY320.__doc__ = BASE_DOCSTRING.format(name="RegNetY320")
 
 
-@keras_export('keras.applications.regnet.preprocess_input')
+@keras_export("keras.applications.regnet.preprocess_input")
 def preprocess_input(x, data_format=None):  # pylint: disable=unused-argument
   """A placeholder method for backward compatibility.
 
@@ -1614,8 +1618,8 @@ def preprocess_input(x, data_format=None):  # pylint: disable=unused-argument
     x: A floating point `numpy.array` or a `tf.Tensor`.
     data_format: Optional data format of the image tensor/array. Defaults to
       None, in which case the global setting
-      `tf.keras.backend.image_data_format()` is used (unless you changed it,
-      it defaults to "channels_last").{mode}
+      `tf.keras.backend.image_data_format()` is used (unless you changed it, it
+      defaults to "channels_last").{mode}
 
   Returns:
     Unchanged `numpy.array` or `tf.Tensor`.
@@ -1623,7 +1627,7 @@ def preprocess_input(x, data_format=None):  # pylint: disable=unused-argument
   return x
 
 
-@keras_export('keras.applications.regnet.decode_predictions')
+@keras_export("keras.applications.regnet.decode_predictions")
 def decode_predictions(preds, top=5):
   return imagenet_utils.decode_predictions(preds, top=top)
 

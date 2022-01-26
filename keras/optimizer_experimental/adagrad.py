@@ -18,9 +18,12 @@ from keras import initializers
 from keras.optimizer_experimental import optimizer
 from keras.utils import generic_utils
 import tensorflow.compat.v2 as tf
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.util.tf_export import keras_export
 
 
 @generic_utils.register_keras_serializable()
+@keras_export('keras.optimizers.experimental.Adagrad', v1=[])
 class Adagrad(optimizer.Optimizer):
   r"""Optimizer that implements the Adagrad algorithm.
 
@@ -41,29 +44,21 @@ class Adagrad(optimizer.Optimizer):
       Starting value for the accumulators (per-parameter momentum values).
       Must be non-negative.
     epsilon: Small floating point value used to maintain numerical stability.
-    clipnorm: float. If set, the gradient of each weight is individually
-      clipped so that its norm is no higher than this value.
-    clipvalue: float. If set, the gradient of each weight is clipped to be
-      no higher than this value.
-    global_clipnorm: float. If set, the gradient of all weights is clipped
-      so that their global norm is no higher than this value.
-    use_ema: boolean, default to False. If True, exponential moving average
-      (EMA) is applied. EMA consists of computing an exponential moving
-      average of the weights of the model (as the weight values change after
-      each training batch), and periodically overwriting the weights with
-      their moving average.
-    ema_momentum: float, default to 0.99. Only used if `use_ema=True`. This is
-      the momentum to use when computing the EMA of the model's weights:
-      `new_average = ema_momentum * old_average +
-       (1 - ema_momentum) * current_variable_value`.
-    ema_overwrite_frequency: int or None, default to 100. Only used if
-      `use_ema=True`. Every ema_overwrite_frequency steps of iterations, we
-      overwrite the model variable by its stored moving average. If None, we
-      do not overwrite model variables in the middle of training, and users
-      need to overwrite the model variable by calling
-      `finalize_variable_update()`.
+    clipnorm: see the `clipnorm` argument of `optimizer_experimental.Optimizer`.
+    clipvalue: see the `clipvalue` argument of
+      `optimizer_experimental.Optimizer`.
+    global_clipnorm: see the `global_clipnorm` argument of
+      `optimizer_experimental.Optimizer`.
+    use_ema: see the `use_ema` argument of `optimizer_experimental.Optimizer`.
+    ema_momentum: see the `ema_momentum` argument of
+      `optimizer_experimental.Optimizer`.
+    ema_overwrite_frequency: see the `ema_overwrite_frequency` argument of
+      `optimizer_experimental.Optimizer`.
+    jit_compile: see the `jit_compile` argument of
+      `optimizer_experimental.Optimizer`.
     name: Optional name prefix for the operations created when applying
-      gradients.  Defaults to `"Adagrad"`.
+      gradients. Defaults to `"Adagrad"`.
+    **kwargs: see the `**kwargs` argument of `optimizer_experimental.Optimizer`.
 
   Reference:
     - [Duchi et al., 2011](
@@ -79,8 +74,10 @@ class Adagrad(optimizer.Optimizer):
                global_clipnorm=None,
                use_ema=False,
                ema_momentum=0.99,
-               ema_overwrite_frequency=100,
-               name='Adagrad'):
+               ema_overwrite_frequency=None,
+               jit_compile=False,
+               name='Adagrad',
+               **kwargs):
     super(Adagrad, self).__init__(
         clipnorm=clipnorm,
         clipvalue=clipvalue,
@@ -88,10 +85,12 @@ class Adagrad(optimizer.Optimizer):
         use_ema=use_ema,
         ema_momentum=ema_momentum,
         ema_overwrite_frequency=ema_overwrite_frequency,
-        name=name)
+        jit_compile=jit_compile,
+        name=name,
+        **kwargs)
     self._learning_rate = self._build_learning_rate(learning_rate)
     self.initial_accumulator_value = initial_accumulator_value
-    self.epsilon = 1e-7
+    self.epsilon = epsilon
 
   def build(self, var_list):
     super().build(var_list)
@@ -106,7 +105,7 @@ class Adagrad(optimizer.Optimizer):
               var, 'accumulator', initializer(shape=var.shape,
                                               dtype=var.dtype)))
 
-  def update_step(self, grad, variable, params=None):
+  def update_step(self, grad, variable):
     """Update step given gradient and the associated model variable."""
     if self._var_key(variable) not in self._index_dict:
       raise KeyError(f'Optimizer cannot recognize variable {variable.name}, '

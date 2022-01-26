@@ -15,8 +15,7 @@
 """Layer serialization/deserialization functions."""
 
 import tensorflow.compat.v2 as tf
-# pylint: disable=wildcard-import
-# pylint: disable=unused-import
+# pylint: disable=g-bad-import-order,g-direct-tensorflow-import,unused-import,wildcard-import
 
 import threading
 from keras.engine import base_layer
@@ -31,17 +30,19 @@ from keras.layers import dense_attention
 from keras.layers import einsum_dense
 from keras.layers import embeddings
 from keras.layers import local
-from keras.layers import merge
+from keras.layers import merging
 from keras.layers import multi_head_attention
 from keras.layers import noise
 from keras.layers import pooling
 from keras.layers import recurrent
 from keras.layers import recurrent_v2
+from keras.layers import reshaping
 from keras.layers import rnn_cell_wrapper_v2
 from keras.layers import wrappers
 from keras.layers.normalization import batch_normalization
 from keras.layers.normalization import batch_normalization_v1
 from keras.layers.normalization import layer_normalization
+from keras.layers.normalization import unit_normalization
 from keras.layers.preprocessing import category_encoding
 from keras.layers.preprocessing import discretization
 from keras.layers.preprocessing import hashing
@@ -51,16 +52,17 @@ from keras.layers.preprocessing import integer_lookup
 from keras.layers.preprocessing import normalization as preprocessing_normalization
 from keras.layers.preprocessing import string_lookup
 from keras.layers.preprocessing import text_vectorization
+from keras.saving.saved_model import json_utils
 from keras.utils import generic_utils
 from keras.utils import tf_inspect as inspect
 from tensorflow.python.util.tf_export import keras_export
 
 ALL_MODULES = (base_layer, input_layer, advanced_activations, convolutional,
                convolutional_recurrent, core, cudnn_recurrent, dense_attention,
-               embeddings, einsum_dense, local, merge, noise,
-               batch_normalization_v1, layer_normalization, pooling,
-               image_preprocessing, recurrent, wrappers, hashing,
-               hashed_crossing, category_encoding, discretization,
+               embeddings, einsum_dense, local, merging, noise,
+               batch_normalization_v1, layer_normalization, unit_normalization,
+               pooling, image_preprocessing, recurrent, reshaping, wrappers,
+               hashing, hashed_crossing, category_encoding, discretization,
                multi_head_attention, integer_lookup,
                preprocessing_normalization, string_lookup, text_vectorization)
 ALL_V2_MODULES = (rnn_cell_wrapper_v2, batch_normalization, layer_normalization,
@@ -130,15 +132,15 @@ def populate_deserializable_objects():
     from keras.feature_column.dense_features import DenseFeatures  # pylint: disable=g-import-not-at-top
     LOCAL.ALL_OBJECTS['DenseFeatures'] = DenseFeatures
 
-  # Merge layers, function versions.
-  LOCAL.ALL_OBJECTS['add'] = merge.add
-  LOCAL.ALL_OBJECTS['subtract'] = merge.subtract
-  LOCAL.ALL_OBJECTS['multiply'] = merge.multiply
-  LOCAL.ALL_OBJECTS['average'] = merge.average
-  LOCAL.ALL_OBJECTS['maximum'] = merge.maximum
-  LOCAL.ALL_OBJECTS['minimum'] = merge.minimum
-  LOCAL.ALL_OBJECTS['concatenate'] = merge.concatenate
-  LOCAL.ALL_OBJECTS['dot'] = merge.dot
+  # Merging layers, function versions.
+  LOCAL.ALL_OBJECTS['add'] = merging.add
+  LOCAL.ALL_OBJECTS['subtract'] = merging.subtract
+  LOCAL.ALL_OBJECTS['multiply'] = merging.multiply
+  LOCAL.ALL_OBJECTS['average'] = merging.average
+  LOCAL.ALL_OBJECTS['maximum'] = merging.maximum
+  LOCAL.ALL_OBJECTS['minimum'] = merging.minimum
+  LOCAL.ALL_OBJECTS['concatenate'] = merging.concatenate
+  LOCAL.ALL_OBJECTS['dot'] = merging.dot
 
 
 @keras_export('keras.layers.serialize')
@@ -216,3 +218,13 @@ def get_builtin_layer(class_name):
   if not hasattr(LOCAL, 'ALL_OBJECTS'):
     populate_deserializable_objects()
   return LOCAL.ALL_OBJECTS.get(class_name)
+
+
+def deserialize_from_json(json_string, custom_objects=None):
+  """Instantiates a layer from a JSON string."""
+  populate_deserializable_objects()
+  config = json_utils.decode_and_deserialize(
+      json_string,
+      module_objects=LOCAL.ALL_OBJECTS,
+      custom_objects=custom_objects)
+  return deserialize(config, custom_objects)

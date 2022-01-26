@@ -18,12 +18,16 @@ This is under development, and subject to interface/implementation changes.
 """
 
 import abc
+from absl import logging
 
 from keras import backend
 from keras import initializers
 from keras.optimizer_v2 import learning_rate_schedule
 from keras.optimizer_v2 import utils as optimizer_utils
 import tensorflow.compat.v2 as tf
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.util.tf_export import keras_export
+from tensorflow.tools.docs import doc_controls
 
 
 class _BaseOptimizer(tf.Module):
@@ -36,45 +40,22 @@ class _BaseOptimizer(tf.Module):
                global_clipnorm=None,
                use_ema=False,
                ema_momentum=0.99,
-               ema_overwrite_frequency=100):
-    """Create a new Optimizer.
-
-    Args:
-      name: String. The name to use for momentum accumulator weights created by
-        the optimizer.
-      clipnorm: float. If set, the gradient of each weight is individually
-        clipped so that its norm is no higher than this value.
-      clipvalue: float. If set, the gradient of each weight is clipped to be no
-        higher than this value.
-      global_clipnorm: float. If set, the gradient of all weights is clipped so
-        that their global norm is no higher than this value.
-      use_ema: boolean, default to False. If True, exponential moving average
-        (EMA) is applied. EMA consists of computing an exponential moving
-        average of the weights of the model (as the weight values change after
-        each training batch), and periodically overwriting the weights with
-        their moving average.
-      ema_momentum: float, default to 0.99. Only used if `use_ema=True`. This is
-        the momentum to use when computing the EMA of the model's weights:
-          `new_average = ema_momentum * old_average + (1 - ema_momentum) *
-          current_variable_value`.
-      ema_overwrite_frequency: int or None, default to 100. Only used if
-        `use_ema=True`. Every ema_overwrite_frequency steps of iterations, we
-        overwrite the model variable by its stored moving average. If None, we
-        do not overwrite model variables in the middle of training, and users
-        need to explicitly overwrite the model variable by calling
-        `finalize_variable_update()`.
-    """
+               ema_overwrite_frequency=None,
+               jit_compile=False,
+               **kwargs):
     self._name = name
     self._clipnorm = clipnorm
     self._global_clipnorm = global_clipnorm
+    self._clipvalue = clipvalue
     self._use_ema = use_ema
+    self._jit_compile = jit_compile
     if use_ema:
       # Verify the arguments related to EMA.
       if ema_momentum > 1 or ema_momentum < 0:
         raise ValueError("`ema_momentum` must be in the range [0, 1]. "
                          f"Received: ema_momentum={ema_momentum}")
-      if ema_overwrite_frequency and not isinstance(
-          ema_overwrite_frequency, int) or ema_overwrite_frequency < 1:
+      if ema_overwrite_frequency and (not isinstance(
+          ema_overwrite_frequency, int) or ema_overwrite_frequency < 1):
         raise ValueError(
             "`ema_overwrite_frequency` must be an integer > 1 or None. "
             f"Received: ema_overwrite_frequency={ema_overwrite_frequency}")
@@ -85,10 +66,29 @@ class _BaseOptimizer(tf.Module):
       raise ValueError(f"At most one of `clipnorm` and `global_clipnorm` can "
                        f"be set. Received: clipnorm={self._clipnorm}, "
                        f"global_clipnorm={self._global_clipnorm}.")
-    self._clipvalue = clipvalue
+
+    self._create_iteration_variable()
+    self._process_kwargs(kwargs)
+
+  def _create_iteration_variable(self):
+    """Create the iterations counter variable."""
     with tf.init_scope():
       # Lift the variable creation to init scope to avoid environment issue.
-      self._iterations = tf.Variable(0, name="iteration", dtype=tf.int64)
+      self._iterations = tf.Variable(
+          0, name="iteration", dtype=tf.int64, trainable=False)
+
+  def _process_kwargs(self, kwargs):
+    legacy_kwargs = {
+        "lr", "decay", "gradient_transformers", "gradient_aggregator"
+    }
+    for k in kwargs:
+      if k in legacy_kwargs:
+        logging.warning(
+            "%s is deprecated in `optimizer_experimental.Optimizer`"
+            ", please check the docstring for valid arguments.", k)
+      else:
+        raise TypeError(f"{k} is not a valid argument, kwargs should be empty "
+                        " for `optimizer_experimental.Optimizer`.")
 
   def _var_key(self, variable):
     """Get a unique identifier of the given variable."""
@@ -113,6 +113,32 @@ class _BaseOptimizer(tf.Module):
     """
     raise NotImplementedError
 
+  @tf.function(jit_compile=True)
+  def _update_step_xla(self, gradient, variable, key):
+    """A wrapper of `update_step` to enable XLA acceleration.
+
+    Due to `tf.function` tracing mechanism, for (gradient, variable) pairs of
+    the same shape and dtype, the execution graph always invoke the first
+    pair it has seen. Thus, we need a `key` argument to make each
+    (gradient, variable) pair unique. In additions, XLA cannot understand
+    string input, so the key is an integer.
+
+    Args:
+      gradient: backpropagated gradient of the given variable.
+      variable: variable whose value needs to be updated.
+      key (int): a unique key that identifies the variable.
+
+    Returns:
+      An `Operation` that applies the specified gradients.
+    """
+    return self.update_step(gradient, variable)
+
+  def _update_step(self, gradient, variable):
+    if self._jit_compile:
+      self._update_step_xla(gradient, variable, id(self._var_key(variable)))
+    else:
+      self.update_step(gradient, variable)
+
   def compute_gradients(self, loss, var_list, tape=None):
     """Compute gradients of loss on trainable variables.
 
@@ -121,12 +147,16 @@ class _BaseOptimizer(tf.Module):
         and return the value to minimize.
       var_list: list or tuple of `Variable` objects to update to minimize
         `loss`.
-      tape: (Optional) `tf.GradientTape`.
+      tape: (Optional) `tf.GradientTape`. If `loss` is provided as a `Tensor`,
+        the tape that computed the `loss` must be provided.
 
     Returns:
       A list of (gradient, variable) pairs. Variable is always present, but
       gradient can be `None`.
     """
+    if not callable(loss) and tape is None:
+      raise ValueError("`tape` is required when a `Tensor` loss is passed. "
+                       f"Received: loss={loss}, tape={tape}.")
     if tape is None:
       tape = tf.GradientTape()
     if callable(loss):
@@ -138,7 +168,7 @@ class _BaseOptimizer(tf.Module):
 
   def _clip_gradients(self, grads):
     clipped_grads = []
-    if self._clipnorm is not None and self._clipnorm > 0:
+    if self._clipnorm and self._clipnorm > 0:
       for g in grads:
         if g is None:
           clipped_grads.append(g)
@@ -146,10 +176,10 @@ class _BaseOptimizer(tf.Module):
           clipped_grads.append(tf.clip_by_norm(g, self._clipnorm))
       return clipped_grads
 
-    if self._global_clipnorm is not None and self._global_clipnorm > 0:
+    if self._global_clipnorm and self._global_clipnorm > 0:
       return tf.clip_by_global_norm(grads, self._global_clipnorm)[0]
 
-    if self._clipvalue is not None and self._clipvalue > 0:
+    if self._clipvalue and self._clipvalue > 0:
       for g in grads:
         if g is None:
           clipped_grads.append(g)
@@ -164,6 +194,11 @@ class _BaseOptimizer(tf.Module):
     return grads
 
   @property
+  def use_ema(self):
+    """Returns whether the optimizer uses EMA of weights."""
+    return self._use_ema
+
+  @property
   def iterations(self):
     """The number of training steps this `optimizer` has run.
 
@@ -171,6 +206,17 @@ class _BaseOptimizer(tf.Module):
     `apply_gradients()` is called.
     """
     return self._iterations
+
+  @iterations.setter
+  def iterations(self, variable):
+    if getattr(self, "_built", False):
+      raise RuntimeError("Cannot set `iterations` to a new Variable after "
+                         "the Optimizer weights have been created. Here it is "
+                         f"attempting to set `iterations` to {variable}."
+                         "Usually this means you are trying to set `iterations`"
+                         " after calling `apply_gradients()`. Please set "
+                         "`iterations` before calling `apply_gradients()`.")
+    self._iterations = variable
 
   @property
   def learning_rate(self):
@@ -196,16 +242,34 @@ class _BaseOptimizer(tf.Module):
                       "the optimizer with a float `learning_rate` argument.")
     self._learning_rate.assign(learning_rate)
 
+  @property
+  @doc_controls.do_not_generate_docs
+  def lr(self):
+    """Alias of `learning_rate()`.
+
+    `lr()` is heavily called in workflows using `optimizer_v2.OptimizerV2`,
+    so we keep it for backward compabitliy.
+    """
+    return self.learning_rate
+
+  @lr.setter
+  def lr(self, learning_rate):
+    self.learning_rate = learning_rate
+
   def _build_learning_rate(self, learning_rate):
     if isinstance(learning_rate, learning_rate_schedule.LearningRateSchedule):
       # Create a variable to hold the current learning rate.
       self._current_learning_rate = tf.Variable(
           learning_rate(self.iterations),
           name="learning_rate",
-          dtype=tf.float32)
+          dtype=tf.float32,
+          trainable=False)
       return learning_rate
     return tf.Variable(
-        learning_rate, name="learning_rate", dtype=backend.floatx())
+        learning_rate,
+        name="learning_rate",
+        dtype=backend.floatx(),
+        trainable=False)
 
   @abc.abstractmethod
   def build(self, var_list):
@@ -359,7 +423,8 @@ class _BaseOptimizer(tf.Module):
       grads_and_vars: List of (gradient, variable) pairs.
     """
     for grad, var in grads_and_vars:
-      self.update_step(grad, var)
+      self._update_step(grad, var)
+
     self.iterations.assign_add(1)
 
   def _update_model_variables_moving_average(self, var_list):
@@ -393,7 +458,10 @@ class _BaseOptimizer(tf.Module):
     Args:
       var_list: list of model variables.
     """
-    self._overwrite_model_variables_with_average_value(var_list)
+    if self._use_ema:
+      # If the optimizer uses EMA, then when finalizing, we replace the model
+      # variable value with its moving average stored inside optimizer.
+      self._overwrite_model_variables_with_average_value(var_list)
 
   def _serialize_hyperparameter(self, hyperparameter):
     """Serialize a hyperparameter that can be a numeric or callable."""
@@ -419,13 +487,15 @@ class _BaseOptimizer(tf.Module):
     Returns:
         Python dictionary.
     """
-    config = {}
-    if hasattr(self, "_clipnorm"):
-      config["clipnorm"] = self._clipnorm
-    if hasattr(self, "_global_clipnorm"):
-      config["global_clipnorm"] = self._global_clipnorm
-    if hasattr(self, "_clipvalue"):
-      config["clipvalue"] = self._clipvalue
+    config = {
+        "clipnorm": self._clipnorm,
+        "global_clipnorm": self._global_clipnorm,
+        "clipvalue": self._clipvalue,
+        "use_ema": self._use_ema,
+        "ema_momentum": self._ema_momentum,
+        "ema_overwrite_frequency": self._ema_overwrite_frequency,
+        "jit_compile": self._jit_compile,
+    }
     return config
 
   @classmethod
@@ -448,11 +518,206 @@ class _BaseOptimizer(tf.Module):
     return cls(**config)
 
 
+@keras_export("keras.optimizers.experimental.Optimizer", v1=[])
 class Optimizer(_BaseOptimizer):
   """Abstract optimizer base class.
 
   This class supports distributed training. If you want to implement your own
   optimizer, please subclass this class instead of _BaseOptimizer.
+
+  Attributes:
+    name: string. The name to use for momentum accumulator weights created by
+      the optimizer.
+    clipnorm: float. If set, the gradient of each weight is individually
+      clipped so that its norm is no higher than this value.
+    clipvalue: float. If set, the gradient of each weight is clipped to be no
+      higher than this value.
+    global_clipnorm: float. If set, the gradient of all weights is clipped so
+      that their global norm is no higher than this value.
+    use_ema: boolean, default to False. If True, exponential moving average
+      (EMA) is applied. EMA consists of computing an exponential moving
+      average of the weights of the model (as the weight values change after
+      each training batch), and periodically overwriting the weights with
+      their moving average.
+    ema_momentum: float, default to 0.99. Only used if `use_ema=True`. This is
+      the momentum to use when computing the EMA of the model's weights:
+        `new_average = ema_momentum * old_average + (1 - ema_momentum) *
+        current_variable_value`.
+    ema_overwrite_frequency: int or None, default to None. Only used if
+      `use_ema=True`. Every `ema_overwrite_frequency` steps of iterations, we
+      overwrite the model variable by its moving average. If None, the optimizer
+       does not overwrite model variables in the middle of training, and you
+      need to explicitly overwrite the variables at the end of training
+      by calling `optimizer.finalize_variable_values()` (which updates the model
+      variables in-place). When using the built-in `fit()` training loop, this
+      happens automatically after the last epoch, and you don't need to do
+      anything.
+    jit_compile: bool, default to False. If True, the optimizer will use XLA
+      acceleration. `jit_compile` can only be False when using Parameter
+      Server Strategy.
+    **kwargs: keyword arguments only used for backward compatibility with
+      `optimizer_v2.OptimizerV2`. Any new code using
+      `optimizer_experimental.Optimizer` should leave this parameter empty.
+
+  ### Usage
+
+  ```python
+  # Create an optimizer with the desired parameters.
+  opt = tf.keras.optimizers.experimental.SGD(learning_rate=0.1)
+  var1, var2 = tf.Variable(1.0), tf.Variable(2.0)
+  # `loss` is a callable that takes no argument and returns the value
+  # to minimize.
+  loss = lambda: 3 * var1 * var1 + 2 * var2 * var2
+  # Call minimize to update the list of variables.
+  opt.minimize(loss, var_list=[var1, var2])
+  ```
+
+  ### Processing gradients before applying them
+
+  Calling `minimize()` takes care of both computing the gradients and
+  applying them to the variables. If you want to process the gradients
+  before applying them you can instead use the optimizer in three steps:
+
+  1.  Compute the gradients with `tf.GradientTape`.
+  2.  Process the gradients as you wish.
+  3.  Apply the processed gradients with `apply_gradients()`.
+
+  Example:
+
+  ```python
+  # Create an optimizer.
+  opt = tf.keras.optimizers.experimental.SGD(learning_rate=0.1)
+  var1, var2 = tf.Variable(1.0), tf.Variable(2.0)
+
+  # Compute the gradients for a list of variables.
+  with tf.GradientTape() as tape:
+    loss = 3 * var1 * var1 + 2 * var2 * var2
+  grads = tape.gradient(loss, [var1, var2])
+
+  # Process the gradients.
+  grads[0] = grads[0] + 1
+
+  # Ask the optimizer to apply the gradients on variables.
+  opt.apply_gradients(zip(grads, [var1, var2]))
+  ```
+
+  ### Dynamic learning rate
+
+  Dynamic learning rate can be achieved by setting learning rate as a built-in
+  or customized `tf.keras.optimizers.schedules.LearningRateSchedule`.
+
+  Example:
+
+  >>> var = tf.Variable(np.random.random(size=(1,)))
+  >>> learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+  ... initial_learning_rate=.01, decay_steps=20, decay_rate=.1)
+  >>> opt = tf.keras.optimizers.experimental.SGD(learning_rate=learning_rate)
+  >>> loss = lambda: 3 * var
+  >>> opt.minimize(loss, var_list=[var])
+  <tf.Variable...
+
+  ### Gradients clipping
+
+  Users can clip the gradients before applying to variables by setting
+  `clipnorm`, `clipvalue` and `global_clipnorm`. Notice that `clipnorm` and
+  `global_clipnorm` can only have one being set.
+
+  Example:
+
+  >>> opt = tf.keras.optimizers.experimental.SGD(learning_rate=1, clipvalue=1)
+  >>> var1, var2 = tf.Variable(2.0), tf.Variable(2.0)
+  >>> with tf.GradientTape() as tape:
+    ... loss = 2 * var1 + 2 * var2
+  >>> grads = tape.gradient(loss, [var1, var2])
+  >>> print([grads[0].numpy(), grads[1].numpy()])
+  [2.0., 2.0]
+  >>> opt.apply_gradients(zip(grads, [var1, var2]))
+  >>> # Without clipping, we should get [0, 0], but as gradients are clipped to
+  >>> # have max value 1, we get [1.0, 1.0].
+  >>> print([var1.numpy(), var2.numpy()])
+  [1.0, 1.0]
+
+  ### Using exponential moving average.
+
+  Empirically it has been found that using the exponential moving average (EMA)
+  of the trained parameters of a deep network achieves a better performance than
+  using its trained parameters directly. Keras optimizers allows users to
+  compute this moving average and overwrite the model variables at desired time.
+
+  Example:
+
+  ```python
+  # Create an SGD optimizer with EMA on. `ema_momentum` controls the decay rate
+  # of the moving average. `ema_momentum=1` means no decay and the stored moving
+  # average is always model variable's initial value before training. Reversely,
+  # `ema_momentum=0` is equivalent to not using EMA. `ema_overwrite_frequency=3`
+  # means every 3 iterations, we overwrite the trainable variables with their
+  # moving average values.
+  opt = tf.keras.optimizers.experimental.SGD(
+      learning_rate=1,
+      use_ema=True,
+      ema_momentum=0.5,
+      ema_overwrite_frequency=3)
+  var1, var2 = tf.Variable(2.0), tf.Variable(2.0)
+  with tf.GradientTape() as tape:
+    loss = var1 + var2
+  grads = tape.gradient(loss, [var1, var2])
+  # First iteration: [var1, var2] = [1.0, 1.0]
+  opt.apply_gradients(zip(grads, [var1, var2]))
+  print([var1, var2])
+
+  # Second iteration: [var1, var2] = [0.0, 0.0]
+  opt.apply_gradients(zip(grads, [var1, var2]))
+  print([var1, var2])
+
+  # Third iteration, without EMA, we should see [var1, var2] = [-1.0, -1.0],
+  # but overwriting results in [var1, var2] = [-0.125, -0.125]. The full
+  # calculation for the moving average of var1 is:
+  # var1=2*0.5**3+1*(1-0.5)*0.5**2+0*(1-0.5)*0.5**1+(-1)*(1-0.5)=-0.125.
+  opt.apply_gradients(zip(grads, [var1, var2]))
+  print([var1, var2])
+
+  ```
+  When optimizer is constructed with `use_ema=True`, in custom training loop,
+  users can explicitly call `finalize_variable_values()` to overwrite trainable
+  variables with their EMA values. `finalize_variable_values()` is by default
+  called at the end of `model.fit()`.
+
+  ### Use with `tf.distribute.Strategy`
+
+  This optimizer class is `tf.distribute.Strategy` aware, which means it
+  automatically sums gradients across all replicas. To aggregate gradients
+  yourself, call `apply_gradients` with `skip_aggregate_gradients` set to True.
+  This is useful if you need to process aggregated gradients.
+
+  ```python
+  # This example is not runnable, it consists of dummy code for simple tutorial.
+  strategy = tf.distribute.experimental.TPUStrategy()
+
+  with strategy.scope():
+    opt = tf.keras.optimizers.experimental.SGD()
+    model = magic_function_that_returns_model()
+    gradients = magic_function_that_returns_gradients()
+    # Custom logic to aggregate gradients.
+    gradients = strategy.reduce("SUM", gradients, axis=None)
+    opt.apply_gradients(zip(gradients, model.trainable_variables),
+        skip_aggregate_gradients=True)
+  ```
+
+  ### Creating a custom optimizer
+
+  If you intend to create your own optimization algorithm, please inherit from
+  this class and override the following methods:
+
+    - `build`: Create your optimizer-related variables, such as `momentums` in
+      SGD optimizer.
+    - `update_step`: Implement your optimizer's updating logic.
+    - `get_config`: serialization of the optimizer, include all hyper
+      parameters.
+
+  Your optimizer would automatically be compatible with tensorflow distributed
+  training if you subclass `optimizer_experimental.Optimizer`.
+
   """
 
   def __init__(self,
@@ -462,36 +727,14 @@ class Optimizer(_BaseOptimizer):
                global_clipnorm=None,
                use_ema=False,
                ema_momentum=0.99,
-               ema_overwrite_frequency=100):
-    """Create a new Optimizer.
+               ema_overwrite_frequency=None,
+               jit_compile=False,
+               **kwargs):
+    """Create a new Optimizer."""
 
-    Args:
-      name: String. The name to use for momentum accumulator weights created by
-        the optimizer.
-      clipnorm: float. If set, the gradient of each weight is individually
-        clipped so that its norm is no higher than this value.
-      clipvalue: float. If set, the gradient of each weight is clipped to be no
-        higher than this value.
-      global_clipnorm: float. If set, the gradient of all weights is clipped so
-        that their global norm is no higher than this value.
-      use_ema: boolean, default to False. If True, exponential moving average
-        (EMA) is applied. EMA consists of computing an exponential moving
-        average of the weights of the model (as the weight values change after
-        each training batch), and periodically overwriting the weights with
-        their moving average.
-      ema_momentum: float, default to 0.99. Only used if `use_ema=True`. This is
-        the momentum to use when computing the EMA of the model's weights:
-          `new_average = ema_momentum * old_average + (1 - ema_momentum) *
-          current_variable_value`.
-      ema_overwrite_frequency: int or None, default to 100. Only used if
-        `use_ema=True`. Every ema_overwrite_frequency steps of iterations, we
-        overwrite the model variable by its stored moving average. If None, we
-        do not overwrite model variables in the middle of training, and users
-        need to explicitly overwrite the model variable by calling
-        `finalize_variable_update()`.
-    """
     super().__init__(name, clipnorm, clipvalue, global_clipnorm, use_ema,
-                     ema_momentum, ema_overwrite_frequency)
+                     ema_momentum, ema_overwrite_frequency, jit_compile,
+                     **kwargs)
     self._distribution_strategy = tf.distribute.get_strategy()
 
   def add_variable_from_reference(self,
@@ -582,12 +825,23 @@ class Optimizer(_BaseOptimizer):
       strategy.extended.update(
           var, lambda a, b: a.assign(b), args=(average_var,))
 
+  def _update_model_variables_moving_average(self, var_list):
+    """Update the stored moving average using the latest value."""
+    if self._use_ema:
+      def update_average(average, var):
+        average.assign(self._ema_momentum * average +
+                       (1 - self._ema_momentum) * var)
+
+      for (var, average) in zip(var_list, self._model_variables_moving_average):
+        self._distribution_strategy.extended.update(
+            average, update_average, args=(var,), group=False)
+
   def _distributed_apply_gradients_fn(self, distribution, grads_and_vars,
                                       **kwargs):
     """`apply_gradients` using a `DistributionStrategy`."""
 
     def apply_grad_to_update_var(var, grad):
-      return self.update_step(grad, var)
+      return self._update_step(grad, var)
 
     for grad, var in grads_and_vars:
       distribution.extended.update(
@@ -597,14 +851,16 @@ class Optimizer(_BaseOptimizer):
     if self._use_ema:
       _, var_list = zip(*grads_and_vars)
       self._update_model_variables_moving_average(var_list)
-      should_overwrite_model_vars = (
-          self._ema_overwrite_frequency and
-          self.iterations % self._ema_overwrite_frequency == 0)
-      tf.cond(
-          should_overwrite_model_vars,
-          true_fn=lambda: self._overwrite_model_variables_with_average_value(  # pylint: disable=g-long-lambda
-              var_list),
-          false_fn=lambda: None)
+      if self._ema_overwrite_frequency:
+        # Only when self._ema_overwrite_frequency is not None, we overwrite the
+        # model variables.
+        should_overwrite_model_vars = (
+            self.iterations % self._ema_overwrite_frequency == 0)
+        tf.cond(
+            tf.cast(should_overwrite_model_vars, tf.bool),
+            true_fn=lambda: self._overwrite_model_variables_with_average_value(  # pylint: disable=g-long-lambda
+                var_list),
+            false_fn=lambda: None)
 
 
 class RestoredOptimizer(Optimizer):

@@ -253,7 +253,7 @@ class TestSavedModelFormatAllModes(keras_parameterized.TestCase):
     with previous_losses[0].graph.as_default():
       # If we try to compare symbolic Tensors in eager mode assertAllEqual will
       # return False even if they are the same Tensor.
-      self.assertAllEqual(previous_losses, model.losses)
+      self.assertEqual(previous_losses, model.losses)
 
     if tf.executing_eagerly():
       # Test that eager losses are maintained.
@@ -1151,7 +1151,8 @@ class TestLayerCallTracing(tf.test.TestCase, parameterized.TestCase):
     fn = call_collection.add_function(layer.call, 'call', True)
     fn(np.ones((2, 3)))
 
-    self.assertAllEqual(previous_losses, layer.losses)
+    self.assertAllEqual(self.evaluate(previous_losses),
+                        self.evaluate(layer.losses))
 
 
 @generic_utils.register_keras_serializable('Testing')

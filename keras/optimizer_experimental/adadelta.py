@@ -17,9 +17,12 @@
 from keras.optimizer_experimental import optimizer
 from keras.utils import generic_utils
 import tensorflow.compat.v2 as tf
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.util.tf_export import keras_export
 
 
 @generic_utils.register_keras_serializable()
+@keras_export('keras.optimizers.experimental.Adadelta', v1=[])
 class Adadelta(optimizer.Optimizer):
   r"""Optimizer that implements the Adadelta algorithm.
 
@@ -47,29 +50,21 @@ class Adadelta(optimizer.Optimizer):
     rho: A `Tensor` or a floating point value. The decay rate. Defaults to 0.95.
     epsilon: Small floating point value used to maintain numerical stability.
       Defaults to 1e-7.
-    clipnorm: float. If set, the gradient of each weight is individually
-      clipped so that its norm is no higher than this value.
-    clipvalue: float. If set, the gradient of each weight is clipped to be
-      no higher than this value.
-    global_clipnorm: float. If set, the gradient of all weights is clipped
-      so that their global norm is no higher than this value.
-    use_ema: boolean, default to False. If True, exponential moving average
-      (EMA) is applied. EMA consists of computing an exponential moving
-      average of the weights of the model (as the weight values change after
-      each training batch), and periodically overwriting the weights with
-      their moving average.
-    ema_momentum: float, default to 0.99. Only used if `use_ema=True`. This is
-      the momentum to use when computing the EMA of the model's weights:
-      `new_average = ema_momentum * old_average +
-       (1 - ema_momentum) * current_variable_value`.
-    ema_overwrite_frequency: int or None, default to 100. Only used if
-      `use_ema=True`. Every ema_overwrite_frequency steps of iterations, we
-      overwrite the model variable by its stored moving average. If None, we
-      do not overwrite model variables in the middle of training, and users
-      need to explicitly overwrite the model variable by calling
-      `finalize_variable_update()`.
+    clipnorm: see the `clipnorm` argument of `optimizer_experimental.Optimizer`.
+    clipvalue: see the `clipvalue` argument of
+      `optimizer_experimental.Optimizer`.
+    global_clipnorm: see the `global_clipnorm` argument of
+      `optimizer_experimental.Optimizer`.
+    use_ema: see the `use_ema` argument of `optimizer_experimental.Optimizer`.
+    ema_momentum: see the `ema_momentum` argument of
+      `optimizer_experimental.Optimizer`.
+    ema_overwrite_frequency: see the `ema_overwrite_frequency` argument of
+      `optimizer_experimental.Optimizer`.
+    jit_compile: see the `jit_compile` argument of
+      `optimizer_experimental.Optimizer`.
     name: Optional name prefix for the operations created when applying
-      gradients.  Defaults to `"Adadelta"`.
+      gradients. Defaults to `"Adadelta"`.
+    **kwargs: see the `**kwargs` argument of `optimizer_experimental.Optimizer`.
 
   Reference:
     - [Zeiler, 2012](http://arxiv.org/abs/1212.5701)
@@ -84,8 +79,10 @@ class Adadelta(optimizer.Optimizer):
                global_clipnorm=None,
                use_ema=False,
                ema_momentum=0.99,
-               ema_overwrite_frequency=100,
-               name='Adadelta'):
+               ema_overwrite_frequency=None,
+               jit_compile=False,
+               name='Adadelta',
+               **kwargs):
     super(Adadelta, self).__init__(
         clipnorm=clipnorm,
         clipvalue=clipvalue,
@@ -93,7 +90,9 @@ class Adadelta(optimizer.Optimizer):
         use_ema=use_ema,
         ema_momentum=ema_momentum,
         ema_overwrite_frequency=ema_overwrite_frequency,
-        name=name)
+        jit_compile=jit_compile,
+        name=name,
+        **kwargs)
     self._learning_rate = self._build_learning_rate(learning_rate)
     self.rho = rho
     self.epsilon = epsilon

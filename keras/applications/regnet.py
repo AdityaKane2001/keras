@@ -390,7 +390,8 @@ def Stem(name=None):
         use_bias=False,
         padding="same",
         kernel_initializer="he_normal",
-        name=name + "_stem_conv")(x)
+        name=name + "_stem_conv",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(x)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_stem_bn")(x)
     x = layers.ReLU(name=name + "_stem_relu")(x)
@@ -465,7 +466,8 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
           strides=stride,
           use_bias=False,
           kernel_initializer="he_normal",
-          name=name + "_skip_1x1")(inputs)
+          name=name + "_skip_1x1",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(inputs)
       skip = layers.BatchNormalization(
           momentum=0.9, epsilon=1e-5, name=name + "_skip_bn")(skip)
     else:
@@ -477,7 +479,8 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
         filters_out, (1, 1),
         use_bias=False,
         kernel_initializer="he_normal",
-        name=name + "_conv_1x1_1")(inputs)
+        name=name + "_conv_1x1_1",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(inputs)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_1_bn")(x)
     x = layers.ReLU(name=name + "_conv_1x1_1_relu")(x)
@@ -490,7 +493,8 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
         groups=groups,
         padding="same",
         kernel_initializer="he_normal",
-        name=name + "_conv_3x3")(x)
+        name=name + "_conv_3x3",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(x)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_conv_3x3_bn")(x)
     x = layers.ReLU(name=name + "_conv_3x3_relu")(x)
@@ -500,7 +504,8 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
         filters_out, (1, 1),
         use_bias=False,
         kernel_initializer="he_normal",
-        name=name + "_conv_1x1_2")(x)
+        name=name + "_conv_1x1_2",
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(x)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_2_bn")(x)
 
@@ -750,7 +755,8 @@ def Head(num_classes=1000, name=None):
 
   def apply(x):
     x = layers.GlobalAveragePooling2D(name=name + "_head_gap")(x)
-    x = layers.Dense(num_classes, name=name + "head_dense")(x)
+    x=layers.Dense(num_classes, name=name + "head_dense",
+                   kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(x)
     return x
 
   return apply

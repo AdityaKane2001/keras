@@ -480,7 +480,7 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
         use_bias=False,
         kernel_initializer="he_normal",
         name=name + "_conv_1x1_1",
-        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(inputs)
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6))(inputs)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_conv_1x1_1_bn")(x)
     x = layers.ReLU(name=name + "_conv_1x1_1_relu")(x)

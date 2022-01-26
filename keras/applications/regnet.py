@@ -391,7 +391,7 @@ def Stem(name=None):
         padding="same",
         kernel_initializer="he_normal",
         name=name + "_stem_conv",
-        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(x)
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6))(x)
     x = layers.BatchNormalization(
         momentum=0.9, epsilon=1e-5, name=name + "_stem_bn")(x)
     x = layers.ReLU(name=name + "_stem_relu")(x)

@@ -467,7 +467,7 @@ def XBlock(filters_in, filters_out, group_width, stride=1, name=None):
           use_bias=False,
           kernel_initializer="he_normal",
           name=name + "_skip_1x1",
-        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6)(inputs)
+        kernel_regularizer=tf.keras.regularizers.L2(l2=5e-6))(inputs)
       skip = layers.BatchNormalization(
           momentum=0.9, epsilon=1e-5, name=name + "_skip_bn")(skip)
     else:

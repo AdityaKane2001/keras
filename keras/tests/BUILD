@@ -10,16 +10,10 @@ load("@org_keras//keras:keras.bzl", "tpu_py_test")
 
 package(
     default_visibility = [
-        "//keras:__subpackages__",
+        "//keras:friends",
         "//third_party/tensorflow/tools/pip_package:__pkg__",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//keras/google/private_tf_api_test:__pkg__"],
 )
 
 tf_py_test(
@@ -208,9 +202,7 @@ cuda_py_test(
     size = "medium",
     srcs = ["memory_test.py"],
     tags = [
-        "manual",
         "no_oss",
-        "notap",  #TODO(b/140640597): this test is flaky at the moment
         "optonly",  # The test is too slow in non-opt mode
     ],
     # TODO(b/140065350): Re-enable
@@ -219,6 +211,7 @@ cuda_py_test(
         "//:expect_tensorflow_installed",
         "//keras",
         "//keras/api:keras_api",
+        "//third_party/tensorflow/python/eager/memory_tests:memory_test_util",
     ],
 )
 
@@ -253,10 +246,10 @@ tf_py_test(
     deps = [
         "//:expect_tensorflow_installed",
         "//keras",
-        "//keras:metrics",
         "//keras/api:keras_api",
         "//keras/layers/core",
-        "//keras/optimizer_v2",
+        "//keras/metrics",
+        "//keras/optimizers/optimizer_v2",
     ],
 )
 
@@ -334,7 +327,7 @@ tf_py_test(
         "//keras/api:keras_api",
         "//keras/engine",
         "//keras/layers/core",
-        "//keras/optimizer_v2",
+        "//keras/optimizers/optimizer_v2",
     ],
 )
 
@@ -360,4 +353,20 @@ py_library(
     srcs = ["get_config_samples.py"],
     srcs_version = "PY3",
     deps = [],
+)
+
+py_test(
+    name = "keras_doctest",
+    srcs = ["keras_doctest.py"],
+    python_version = "PY3",
+    tags = [
+        "no_pip",
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        "//:expect_tensorflow_installed",
+        "//keras/utils:keras_doctest_lib",
+    ],
 )

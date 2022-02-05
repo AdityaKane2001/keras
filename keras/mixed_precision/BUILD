@@ -23,16 +23,10 @@ package(
     default_visibility = [
         # TODO(scottzhu): Remove these two deps and convert the test to integration test.
         "//third_party/tensorflow/python/distribute:__pkg__",  # For collective_all_reduce_strategy_test
-        "//keras:__subpackages__",
+        "//keras:friends",
         "//third_party/tensorflow/tools/pip_package:__pkg__",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//keras/google/private_tf_api_test:__pkg__"],
 )
 
 py_library(
@@ -73,7 +67,7 @@ tf_py_test(
         "//keras",
         "//keras:combinations",
         "//keras/mixed_precision:loss_scale_optimizer",
-        "//keras/optimizer_v2",
+        "//keras/optimizers/optimizer_v2",
     ],
 )
 
@@ -140,7 +134,7 @@ tf_py_test(
         ":autocast_variable",
         "//:expect_absl_installed",
         "//:expect_tensorflow_installed",
-        "//keras/optimizer_v2",
+        "//keras/optimizers/optimizer_v2",
     ],
 )
 
@@ -162,7 +156,7 @@ py_library(
         ":loss_scale",
         "//:expect_absl_installed",
         "//:expect_tensorflow_installed",
-        "//keras/optimizer_v2",
+        "//keras/optimizers/optimizer_v2",
     ],
 )
 
@@ -171,6 +165,7 @@ cuda_py_test(
     size = "medium",
     srcs = ["loss_scale_optimizer_test.py"],
     python_version = "PY3",
+    shard_count = 4,
     deps = [
         ":loss_scale_optimizer",
         ":test_util",
@@ -207,7 +202,7 @@ cuda_py_test(
         "//keras",
         "//keras:combinations",
         "//keras:testing_utils",
-        "//keras/optimizer_v2",
+        "//keras/optimizers/optimizer_v2",
     ],
 )
 

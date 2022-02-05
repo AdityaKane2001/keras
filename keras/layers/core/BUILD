@@ -4,22 +4,16 @@ load("@org_keras//keras:keras.bzl", "tf_py_test")
 
 package(
     default_visibility = [
-        "//keras:__subpackages__",
+        "//keras:friends",
         "//third_party/py/tensorflow_gnn:__subpackages__",
         "//third_party/tensorflow/python/distribute:__pkg__",
         "//third_party/tensorflow/python/feature_column:__pkg__",
         "//third_party/tensorflow/python/keras:__subpackages__",
         "//third_party/tensorflow/python/training/tracking:__pkg__",
         "//third_party/tensorflow/tools/pip_package:__pkg__",
-        "//third_party/tensorflow_models/official/vision/beta/projects/residual_mobilenet/modeling/backbones:__pkg__",
+        "//third_party/tensorflow_models/official/projects/residual_mobilenet/modeling/backbones:__pkg__",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//third_party/tensorflow/python/keras/google/private_tf_api_test:__pkg__"],
 )
 
 py_library(
@@ -30,17 +24,19 @@ py_library(
     srcs_version = "PY3",
     deps = [
         ":activation",
-        ":activity_regularization",
         ":dense",
-        ":dropout",
-        ":flatten",
         ":lambda",
         ":masking",
-        ":permute",
-        ":repeat_vector",
-        ":reshape",
-        ":spatial_dropout",
         ":tf_op_layer",
+        "//keras/layers/regularization:activity_regularization",
+        "//keras/layers/regularization:dropout",
+        "//keras/layers/regularization:spatial_dropout1d",
+        "//keras/layers/regularization:spatial_dropout2d",
+        "//keras/layers/regularization:spatial_dropout3d",
+        "//keras/layers/reshaping:flatten",
+        "//keras/layers/reshaping:permute",
+        "//keras/layers/reshaping:repeat_vector",
+        "//keras/layers/reshaping:reshape",
     ],
 )
 
@@ -68,44 +64,11 @@ py_library(
 )
 
 py_library(
-    name = "activity_regularization",
-    srcs = ["activity_regularization.py"],
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-    ],
-)
-
-py_library(
     name = "dense",
     srcs = ["dense.py"],
     deps = [
         "//:expect_tensorflow_installed",
         "//keras:backend",
-    ],
-)
-
-py_library(
-    name = "dropout",
-    srcs = ["dropout.py"],
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-    ],
-)
-
-py_library(
-    name = "flatten",
-    srcs = ["flatten.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:base_layer",
-        "//keras/initializers",
-        "//keras/utils:tf_utils",
     ],
 )
 
@@ -124,67 +87,6 @@ py_library(
     deps = [
         "//:expect_tensorflow_installed",
         "//keras:backend",
-    ],
-)
-
-py_library(
-    name = "permute",
-    srcs = ["permute.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:base_layer",
-        "//keras/initializers",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "repeat_vector",
-    srcs = ["repeat_vector.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:base_layer",
-        "//keras/initializers",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "reshape",
-    srcs = ["reshape.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:base_layer",
-        "//keras/initializers",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "spatial_dropout",
-    srcs = ["spatial_dropout.py"],
-    srcs_version = "PY3",
-    deps = [
-        ":dropout",
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:base_layer",
-        "//keras/initializers",
-        "//keras/utils:tf_utils",
     ],
 )
 

@@ -15,7 +15,6 @@
 # pylint: disable=protected-access
 """A `Network` is way to compose layers: the topological form of a `Model`."""
 
-import tensorflow.compat.v2 as tf
 
 import collections
 import copy
@@ -34,6 +33,7 @@ from keras.saving.saved_model import network_serialization
 from keras.utils import generic_utils
 from keras.utils import tf_inspect
 from keras.utils import tf_utils
+import tensorflow.compat.v2 as tf
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.tools.docs import doc_controls
 
@@ -72,15 +72,43 @@ class Functional(training_lib.Model):
 
   Example:
 
-  ```
+  ```python
   inputs = keras.Input(shape=(10,))
   x = keras.layers.Dense(1)(inputs)
   outputs = tf.nn.relu(x)
   model = keras.Model(inputs, outputs)
   ```
 
+  A new `Functional` model can also be created by using the
+  intermediate tensors. This enables you to quickly extract sub-components
+  of the model.
+
+  Example:
+
+  ```python
+  inputs = keras.Input(shape=(None, None, 3))
+  processed = keras.layers.RandomCrop(width=32, height=32)(inputs)
+  conv = keras.layers.Conv2D(filters=2, kernel_size=3)(processed)
+  pooling = keras.layers.GlobalAveragePooling2D()(conv)
+  feature = keras.layers.Dense(10)(pooling)
+
+  full_model = keras.Model(inputs, feature)
+  backbone = keras.Model(processed, conv)
+  activations = keras.Model(conv, feature)
+  ```
+
+  Note that the `backbone` and `activations` models are not
+  created with `keras.Input` objects, but with the tensors that are originated
+  from `keras.Inputs` objects. Under the hood, the layers and weights will
+  be shared across these models, so that user can train the `full_model`, and
+  use `backbone` or `activations` to do feature extraction.
+  The inputs and outputs of the model can be nested structures of tensors as
+  well, and the created models are standard `Functional` model that support
+  all the existing API.
+
   Args:
-    inputs: List of input tensors (must be created via `tf.keras.Input()`).
+    inputs: List of input tensors (must be created via `tf.keras.Input()` or
+      originated from `tf.keras.Input()`).
     outputs: List of output tensors.
     name: String, optional. Name of the model.
     trainable: Boolean, optional. If the model's variables should be trainable.
@@ -119,9 +147,10 @@ class Functional(training_lib.Model):
 
   @tf.__internal__.tracking.no_automatic_dependency_tracking
   def _init_graph_network(self, inputs, outputs):
-    base_layer.keras_api_gauge.get_cell('Functional').set(True)
     # This method is needed for Sequential to reinitialize graph network when
     # layer is added or removed.
+
+    base_layer.keras_api_gauge.get_cell('Functional').set(True)
     self._is_graph_network = True
 
     # Normalize and set self.inputs, self.outputs.
@@ -366,12 +395,10 @@ class Functional(training_lib.Model):
       dependencies['layer-%d' % layer_index] = layer
     return dependencies
 
-  @property
-  def _checkpoint_dependencies(self):
-    dependencies = [
-        tf.__internal__.tracking.TrackableReference(name=name, ref=layer)
-        for name, layer in self._layer_checkpoint_dependencies.items()]
-    dependencies.extend(super(Functional, self)._checkpoint_dependencies)
+  def _trackable_children(self, save_type='checkpoint', **kwargs):
+    dependencies = self._layer_checkpoint_dependencies
+    dependencies.update(
+        super(Functional, self)._trackable_children(save_type, **kwargs))
     return dependencies
 
   def _lookup_dependency(self, name):
@@ -643,39 +670,18 @@ class Functional(training_lib.Model):
       tensor = tf.cast(tensor, dtype=ref_input.dtype)
     elif tf_utils.is_extension_type(tensor):
       # Dtype casting (If the extension type has a non-variant dtype and
-      # supports being cast)
+      # supports being cast).  Only cast if necessary (since some extension
+      # types may not implement tf.cast).
+      tensor_dtype = getattr(tensor, 'dtype', None)
       ref_input_dtype = getattr(ref_input, 'dtype', None)
-      if ref_input_dtype is not None and ref_input_dtype != tf.variant:
+      if (ref_input_dtype is not None and tensor_dtype is not None and
+          tensor_dtype != ref_input_dtype and ref_input_dtype != tf.variant):
         tensor = tf.cast(tensor, dtype=ref_input_dtype)
 
     return tensor
 
   def get_config(self):
     return copy.deepcopy(get_network_config(self))
-
-  @classmethod
-  def from_config(cls, config, custom_objects=None):
-    """Instantiates a Model from its config (output of `get_config()`).
-
-    Args:
-        config: Model config dictionary.
-        custom_objects: Optional dictionary mapping names
-            (strings) to custom classes or functions to be
-            considered during deserialization.
-
-    Returns:
-        A model instance.
-
-    Raises:
-        ValueError: In case of improperly formatted config dict.
-    """
-    with generic_utils.SharedObjectLoadingScope():
-      input_tensors, output_tensors, created_layers = reconstruct_from_config(
-          config, custom_objects)
-      model = cls(inputs=input_tensors, outputs=output_tensors,
-                  name=config.get('name'))
-      connect_ancillary_layers(model, created_layers)
-      return model
 
   def _validate_graph_inputs_and_outputs(self):
     """Validates the inputs and outputs of a Graph Network."""
@@ -717,7 +723,7 @@ class Functional(training_lib.Model):
         for x in self.inputs])
     input_batch_sizes.discard(None)
     if len(input_batch_sizes) > 1:
-      logging.warning('Found incompatiable static batch sizes among the '
+      logging.warning('Found incompatible static batch sizes among the '
                       f'inputs. Batch sizes: {sorted(input_batch_sizes)}')
 
     for x in self.outputs:

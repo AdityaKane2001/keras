@@ -21,9 +21,11 @@ import random
 import shutil
 import string
 from keras import keras_parameterized
+from keras import testing_utils
 from keras.preprocessing import text_dataset
 
 
+@testing_utils.run_v2_only
 class TextDatasetFromDirectoryTest(keras_parameterized.TestCase):
 
   def _prepare_directory(self,
@@ -248,7 +250,14 @@ class TextDatasetFromDirectoryTest(keras_parameterized.TestCase):
       _ = text_dataset.text_dataset_from_directory(
           directory, validation_split=0.2, subset='training')
 
+  def test_text_dataset_from_directory_not_batched(self):
+    directory = self._prepare_directory()
+    dataset = text_dataset.text_dataset_from_directory(
+        directory, batch_size=None, label_mode=None, follow_links=True)
+
+    sample = next(iter(dataset))
+    self.assertEqual(len(sample.shape), 0)
+
 
 if __name__ == '__main__':
-  tf.compat.v1.enable_v2_behavior()
   tf.test.main()

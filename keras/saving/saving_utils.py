@@ -16,12 +16,13 @@
 
 # pylint: disable=g-bad-import-order, g-direct-tensorflow-import
 import tensorflow.compat.v2 as tf
+import keras
 
 import copy
 import os
 from keras import backend
 from keras import losses
-from keras import optimizer_v1
+from keras.optimizers import optimizer_v1
 from keras import optimizers
 from keras.engine import base_layer_utils
 from keras.utils import generic_utils
@@ -81,11 +82,23 @@ def model_call_inputs(model, keep_original_batch_size=False):
 
 
 def raise_model_input_error(model):
+  if isinstance(model, keras.models.Sequential):
+    raise ValueError(
+        f'Model {model} cannot be saved because the input shape is not '
+        'available. Please specify an input shape either by calling '
+        '`build(input_shape)` directly, or by calling the model on actual '
+        'data using `Model()`, `Model.fit()`, or `Model.predict()`.')
+
+  # If the model is not a `Sequential`, it is intended to be a subclassed model.
   raise ValueError(
-      f'Model {model} cannot be saved because the input shapes have not '
-      f'been set. Usually, input shapes are automatically determined when '
-      f'calling `.fit()` or `.predict()`. To manually set the shapes, call '
-      f'`model.build(input_shape)')
+      f'Model {model} cannot be saved either because the input shape is not '
+      'available or because the forward pass of the model is not defined.'
+      'To define a forward pass, please override `Model.call()`. To specify '
+      'an input shape, either call `build(input_shape)` directly, or call '
+      'the model on actual data using `Model()`, `Model.fit()`, or '
+      '`Model.predict()`. If you have a custom training step, please make '
+      'sure to invoke the forward pass in train step through '
+      '`Model.__call__`, i.e. `model(inputs)`, as opposed to `model.call()`.')
 
 
 def trace_model_call(model, input_signature=None):
@@ -138,7 +151,7 @@ def trace_model_call(model, input_signature=None):
 def model_metadata(model, include_optimizer=True, require_config=True):
   """Returns a dictionary containing the model metadata."""
   from keras import __version__ as keras_version  # pylint: disable=g-import-not-at-top
-  from keras.optimizer_v2 import optimizer_v2  # pylint: disable=g-import-not-at-top
+  from keras.optimizers.optimizer_v2 import optimizer_v2  # pylint: disable=g-import-not-at-top
 
   model_config = {'class_name': model.__class__.__name__}
   try:

@@ -14,7 +14,6 @@
 # ==============================================================================
 """Tests for Keras callbacks."""
 
-import tensorflow.compat.v2 as tf
 
 import collections
 import csv
@@ -26,19 +25,23 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 from absl.testing import parameterized
-import numpy as np
 import keras
 from keras import keras_parameterized
 from keras import testing_utils
 from keras.callbacks import BackupAndRestore
+from keras.callbacks import BackupAndRestoreExperimental
 from keras.engine import sequential
 from keras.layers import Activation
 from keras.layers import Dense
-from keras.optimizer_v2 import gradient_descent
-from keras.optimizer_v2 import learning_rate_schedule
+from keras.optimizers import learning_rate_schedule
+from keras.optimizers.optimizer_v2 import gradient_descent
+from keras.utils import io_utils
 from keras.utils import np_utils
+import numpy as np
+import tensorflow.compat.v2 as tf
 from tensorflow.python.platform import tf_logging as logging
 
 try:
@@ -272,6 +275,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(10)
     expected_log = r'(.*- loss:.*- my_acc:.*)+'
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(dataset, epochs=2, steps_per_epoch=10)
       self.assertRegex(printed.contents(), expected_log)
@@ -300,6 +304,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     # There are 7 ones in total in `y_train` after two batches.
     expected_log = r'(.*- loss:.*- my_acc:.*- add_all_ones: 7.0000)+'
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model = self._get_model(
           input_shape=(8,), additional_metrics=[AddAllOnes()])
@@ -324,6 +329,8 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
       model.fit(np.ones((10, 1)), np.ones((10, 1)), epochs=0, callbacks=[cbk])
 
   def test_backup_restore_train_counter(self):
+    if not tf.compat.v1.executing_eagerly():
+      self.skipTest('BackupAndRestore only available when execution is enabled')
     model = keras.Sequential([keras.layers.Dense(1)])
     model.compile('sgd', 'mse')
     cbk = BackupAndRestore(self.get_temp_dir())
@@ -352,6 +359,72 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     except RuntimeError:
       pass
     self.assertEqual(model._train_counter.numpy(), 13)
+
+  def _test_backup_and_restore_callback_with(self, cls):
+    if not tf.compat.v1.executing_eagerly():
+      self.skipTest('BackupAndRestore only available when execution is enabled')
+
+    class InterruptingCallback(keras.callbacks.Callback):
+      """A callback to intentionally introduce interruption to training."""
+
+      def on_epoch_end(self, epoch, log=None):
+        if epoch == 15:
+          raise RuntimeError('Interruption')
+
+    model = keras.Sequential([keras.layers.Dense(10)])
+    optimizer = gradient_descent.SGD()
+    model.compile(optimizer, loss='mse')
+
+    x = tf.random.uniform((24, 10))
+    y = tf.random.uniform((24,))
+    dataset = tf.data.Dataset.from_tensor_slices((x, y)).repeat().batch(2)
+
+    backup_callback = cls(backup_dir=self.get_temp_dir())
+    try:
+      model.fit(
+          dataset,
+          epochs=20,
+          steps_per_epoch=5,
+          callbacks=[backup_callback, InterruptingCallback()])
+    except RuntimeError:
+      logging.warning('***Handling interruption***')
+      # This continues at the epoch where it left off.
+      model.fit(
+          dataset, epochs=20, steps_per_epoch=5, callbacks=[backup_callback])
+
+  def test_experimental_backup_and_restore(self):
+    """Ensure the legacy endpoint of `BackupAndRestore` gives warning."""
+
+    warning_messages = []
+
+    def warning(msg):
+      warning_messages.append(msg)
+
+    with tf.compat.v1.test.mock.patch.object(logging, 'warning', warning):
+      self._test_backup_and_restore_callback_with(BackupAndRestoreExperimental)
+
+    warning_msg = ('`tf.keras.callbacks.experimental.BackupAndRestore` '
+                   'endpoint is deprecated')
+    self.assertIn(warning_msg, '\n'.join(warning_messages))
+    warning_msg = ('***Handling interruption***')
+    self.assertIn(warning_msg, '\n'.join(warning_messages))
+
+  def test_backup_and_restore(self):
+    """Ensure the public endpoint of `BackupAndRestore` is working."""
+
+    warning_messages = []
+
+    def warning(msg):
+      warning_messages.append(msg)
+
+    with tf.compat.v1.test.mock.patch.object(logging, 'warning', warning):
+      self._test_backup_and_restore_callback_with(BackupAndRestore)
+
+    warning_msg = ('`tf.keras.callbacks.experimental.BackupAndRestore` '
+                   'endpoint is deprecated')
+    self.assertNotIn(warning_msg, '\n'.join(warning_messages))
+    warning_msg = ('***Handling interruption***')
+    self.assertIn(warning_msg, '\n'.join(warning_messages))
 
   @keras_parameterized.run_all_keras_modes
   def test_callback_warning(self):
@@ -418,6 +491,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(10)
     expected_log = r'(.*- loss:.*- my_acc:.*)+'
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(dataset, epochs=2, steps_per_epoch=10)
       self.assertRegex(printed.contents(), expected_log)
@@ -433,6 +507,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     val_dataset = tf.data.Dataset.from_tensor_slices((x, y)).batch(10)
     expected_log = r'(.*5/5.*- loss:.*- my_acc:.*- val_loss:.*- val_my_acc:.*)+'
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(training_dataset, epochs=2, validation_data=val_dataset)
       self.assertRegex(printed.contents(), expected_log)
@@ -448,6 +523,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
         r'(?s).*1/2.*8/8.*- loss:.*- my_acc:.*- val_loss:.*- val_my_acc:'
         r'.*2/2.*8/8.*- loss:.*- my_acc:.*- val_loss:.*- val_my_acc:.*')
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(x, y, batch_size=10, epochs=2, validation_split=0.2)
       self.assertRegex(printed.contents(), expected_log)
@@ -478,6 +554,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
         r'(?s).*1/2.*20/20.*- loss:.*- my_acc:.*- val_loss:.*- val_my_acc:'
         r'.*2/2.*20/20.*- loss:.*- my_acc:.*- val_loss:.*- val_my_acc:.*')
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(
           x=training, validation_data=validation, epochs=2, steps_per_epoch=20)
@@ -506,6 +583,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
           output_shapes=([2], [])) \
       .batch(2)
 
+    io_utils.enable_interactive_logging()
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(x=training, validation_data=validation)
 
@@ -523,6 +601,8 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     model_type = testing_utils.get_model_type()
     if model_type == 'subclass':
       return  # Skip test since subclassed models cannot be saved in .h5 format.
+    if not tf.__internal__.tf2.enabled():
+      self.skipTest('Checkpoint callback only available in v2.')
 
     layers = [
         keras.layers.Dense(NUM_HIDDEN, input_dim=INPUT_DIM, activation='relu'),
@@ -844,6 +924,102 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     os.remove(filepath.format(epoch=5, batch=1))
     os.remove(filepath.format(epoch=5, batch=2))
 
+    # Case 12: ModelCheckpoint saves model with initial_value_threshold param
+    mode = 'max'
+    monitor = 'val_acc'
+    initial_value_threshold = 0
+    save_best_only = True
+    filepath = os.path.join(temp_dir, 'checkpoint.h5')
+    cbks = [
+        keras.callbacks.ModelCheckpoint(
+            filepath,
+            monitor=monitor,
+            save_best_only=save_best_only,
+            initial_value_threshold=initial_value_threshold,
+            mode=mode)
+    ]
+    model.fit(
+        x_train,
+        y_train,
+        batch_size=BATCH_SIZE,
+        validation_data=(x_test, y_test),
+        callbacks=cbks,
+        epochs=1,
+        verbose=0)
+    assert os.path.exists(filepath)
+    os.remove(filepath)
+
+    # Case 13: ModelCheckpoint saves model with initial_value_threshold param
+    mode = 'auto'
+    monitor = 'val_loss'
+    initial_value_threshold = None
+    save_best_only = True
+    cbks = [
+        keras.callbacks.ModelCheckpoint(
+            filepath,
+            monitor=monitor,
+            save_best_only=save_best_only,
+            initial_value_threshold=initial_value_threshold,
+            mode=mode)
+    ]
+    model.fit(
+        x_train,
+        y_train,
+        batch_size=BATCH_SIZE,
+        validation_data=(x_test, y_test),
+        callbacks=cbks,
+        epochs=1,
+        verbose=0)
+    assert os.path.exists(filepath)
+    os.remove(filepath)
+
+    # Case 14: ModelCheckpoint doesnt save model if loss was minimum earlier
+    mode = 'min'
+    monitor = 'val_loss'
+    initial_value_threshold = 0
+    save_best_only = True
+    cbks = [
+        keras.callbacks.ModelCheckpoint(
+            filepath,
+            monitor=monitor,
+            save_best_only=save_best_only,
+            initial_value_threshold=initial_value_threshold,
+            mode=mode)
+    ]
+    model.fit(
+        x_train,
+        y_train,
+        batch_size=BATCH_SIZE,
+        validation_data=(x_test, y_test),
+        callbacks=cbks,
+        epochs=1,
+        verbose=0)
+    assert not os.path.exists(filepath)
+
+    # Case 15: ModelCheckpoint doesnt save model if loss was min earlier in auto
+    # mode
+    mode = 'auto'
+    monitor = 'val_loss'
+    initial_value_threshold = 0
+    save_best_only = True
+    cbks = [
+        keras.callbacks.ModelCheckpoint(
+            filepath,
+            monitor=monitor,
+            save_best_only=save_best_only,
+            initial_value_threshold=initial_value_threshold,
+            mode=mode)
+    ]
+    model.fit(
+        x_train,
+        y_train,
+        batch_size=BATCH_SIZE,
+        validation_data=(x_test, y_test),
+        callbacks=cbks,
+        epochs=1,
+        verbose=0)
+    assert not os.path.exists(filepath)
+
   @testing_utils.run_v2_only
   def test_ModelCheckpoint_subclass_save_weights_false(self):
     model = testing_utils.get_small_subclass_mlp(NUM_HIDDEN, NUM_CLASSES)
@@ -1118,7 +1294,7 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
             1, activation='sigmoid'),))
     model.compile(
         optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy'])
-    expected_log = r'(.*- loss:.*- accuracy:.*epoch)+'
+    expected_log = r'(.*- loss:.*- acc.*:.*epoch)+'
     with self.captureWritesToStream(sys.stdout) as printed:
       model.fit(data, labels, verbose=2, epochs=20)
       self.assertRegex(printed.contents(), expected_log)
@@ -1324,15 +1500,21 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
           optimizer='sgd',
           metrics=['accuracy'])
 
-      cbks = [keras.callbacks.LearningRateScheduler(lambda x: 1. / (1. + x))]
-      model.fit(
-          x_train,
-          y_train,
-          batch_size=BATCH_SIZE,
-          validation_data=(x_test, y_test),
-          callbacks=cbks,
-          epochs=5,
-          verbose=0)
+      cbks = [
+          keras.callbacks.LearningRateScheduler(
+              lambda x: 1. / (1. + x), verbose=1)
+      ]
+      io_utils.enable_interactive_logging()
+      with self.captureWritesToStream(sys.stdout) as printed:
+        model.fit(
+            x_train,
+            y_train,
+            batch_size=BATCH_SIZE,
+            validation_data=(x_test, y_test),
+            callbacks=cbks,
+            epochs=5)
+        self.assertIn('LearningRateScheduler setting learning rate to 1.0',
+                      printed.contents())
       assert (
           float(keras.backend.get_value(
               model.optimizer.lr)) - 0.2) < keras.backend.epsilon()
@@ -1608,11 +1790,10 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
 
       values = []
       with open(fp) as f:
-        for x in csv.reader(f):
-          # In windows, due to \r\n line ends we may end up reading empty lines
-          # after each line. Skip empty lines.
-          if x:
-            values.append(x)
+        # On Windows, due to \r\n line ends, we may end up reading empty lines
+        # after each line. Skip empty lines.
+        values = [x for x in csv.reader(f) if x]
+
       assert 'nan' in values[-1], 'The last epoch was not logged.'
 
   @keras_parameterized.run_all_keras_modes(always_skip_v1=True)
@@ -2037,6 +2218,28 @@ class KerasCallbacksTest(keras_parameterized.TestCase):
     model.fit(x, y, batch_size=2, callbacks=[my_cb])
     self.assertEqual(my_cb.batch_counter, 3)
 
+  @keras_parameterized.run_all_keras_modes(always_skip_v1=True)
+  def test_built_in_callback_order(self):
+
+    class CustomCallback(keras.callbacks.Callback):
+      pass
+
+    class TestingCallbackList(keras.callbacks.CallbackList):
+
+      def __init__(self, *args, **kwargs):
+        super(TestingCallbackList, self).__init__(*args, **kwargs)
+        if ((not isinstance(self.callbacks[0], CustomCallback)) or
+            (not isinstance(self.callbacks[1], keras.callbacks.History)) or
+            (not isinstance(self.callbacks[2], keras.callbacks.ProgbarLogger))):
+          raise AssertionError(f'Callback order unexpected: {self.callbacks}')
+
+    with mock.patch.object(
+        keras.callbacks, 'CallbackList', TestingCallbackList):
+      model = keras.Sequential([keras.layers.Dense(1)])
+      model.compile('sgd', 'mse')
+      custom_callback = CustomCallback()
+      model.fit(np.ones((10, 10)), np.ones((10, 1)), epochs=5,
+                callbacks=[custom_callback])
 
 # A summary that was emitted during a test. Fields:
 #   logdir: str. The logdir of the FileWriter to which the summary was
@@ -2256,7 +2459,6 @@ class TestTensorBoardV2(keras_parameterized.TestCase):
     self.assertEqual(
         summary_file.scalars,
         {
-            _ObservedSummary(logdir=self.train_dir, tag='batch_loss'),
             _ObservedSummary(logdir=self.train_dir, tag='epoch_loss'),
             _ObservedSummary(logdir=self.validation_dir, tag='epoch_loss'),
             _ObservedSummary(
@@ -2314,7 +2516,6 @@ class TestTensorBoardV2(keras_parameterized.TestCase):
         summary_file.scalars,
         {
             _ObservedSummary(logdir=self.train_dir, tag='epoch_loss'),
-            _ObservedSummary(logdir=self.train_dir, tag='batch_loss'),
             _ObservedSummary(logdir=self.train_dir, tag='epoch_learning_rate'),
             _ObservedSummary(
                 logdir=self.train_dir, tag='epoch_steps_per_second'),
@@ -2482,7 +2683,6 @@ class TestTensorBoardV2(keras_parameterized.TestCase):
             _ObservedSummary(
                 logdir=self.validation_dir,
                 tag='evaluation_loss_vs_iterations'),
-            _ObservedSummary(logdir=self.train_dir, tag='batch_loss'),
             _ObservedSummary(
                 logdir=self.train_dir,
                 tag='model/layer_with_summary/custom_summary'),
@@ -3014,6 +3214,10 @@ class SummaryOpsTest(tf.test.TestCase):
       def call(self, inputs):
         x = self.dense(inputs)
         return self.activation(x)
+
+      # Intentionally erroring out at json serialization to test the warning.
+      def get_config(self):
+        raise NotImplementedError
 
     model = SimpleSubclass()
     with tf.compat.v1.test.mock.patch.object(logging, 'warning') as mock_log:

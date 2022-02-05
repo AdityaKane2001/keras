@@ -27,7 +27,7 @@ from keras import callbacks as callbacks_lib
 from keras.engine import sequential
 from keras.layers import core as core_layers
 from keras.layers.preprocessing import string_lookup
-from keras.optimizer_v2 import gradient_descent
+from keras.optimizers.optimizer_v2 import gradient_descent
 from keras.utils import dataset_creator
 from tensorflow.python.platform import tf_logging as logging
 
@@ -119,7 +119,8 @@ class DatasetCreatorModelFitTestBase(tf.test.TestCase, parameterized.TestCase):
                  with_normalization_layer=False,
                  callbacks=None,
                  use_lookup_layer=False,
-                 use_dataset_creator=True):
+                 use_dataset_creator=True,
+                 verbose="auto"):
     if callbacks is None:
       callbacks = []
 
@@ -153,7 +154,8 @@ class DatasetCreatorModelFitTestBase(tf.test.TestCase, parameterized.TestCase):
         steps_per_epoch=steps_per_epoch,
         callbacks=callbacks,
         validation_data=validation_data,
-        validation_steps=steps_per_epoch)
+        validation_steps=steps_per_epoch,
+        verbose=verbose)
     return model
 
   def _model_evaluate(self,

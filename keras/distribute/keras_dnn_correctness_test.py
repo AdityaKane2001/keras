@@ -23,7 +23,7 @@ from keras import backend
 from keras import testing_utils
 from keras.distribute import keras_correctness_test_base
 from keras.distribute import strategy_combinations
-from keras.optimizer_v2 import gradient_descent as gradient_descent_keras
+from keras.optimizers.optimizer_v2 import gradient_descent as gradient_descent_keras
 
 
 def all_strategy_combinations_with_eager_and_graph_modes():
@@ -275,7 +275,7 @@ class TestDistributionStrategyDnnCorrectnessWithSubclassedModel(
       with self.assertRaisesRegex(
           ValueError,
           'Expected `model` argument to be a functional `Model` instance, '
-          'but got a subclass model instead.'):
+          'but got a subclassed model instead.'):
         self.run_correctness_test(distribution, use_numpy, use_validation_data)
     else:
       with self.assertRaisesRegex(
@@ -295,7 +295,7 @@ class TestDistributionStrategyDnnCorrectnessWithSubclassedModel(
       with self.assertRaisesRegex(
           ValueError,
           'Expected `model` argument to be a functional `Model` instance, '
-          'but got a subclass model instead.'):
+          'but got a subclassed model instead.'):
         self.run_dynamic_lr_test(distribution)
     else:
       with self.assertRaisesRegex(
@@ -313,7 +313,7 @@ class TestDistributionStrategyDnnCorrectnessWithSubclassedModel(
     with self.assertRaisesRegex(
         ValueError,
         'Expected `model` argument to be a functional `Model` instance, '
-        'but got a subclass model instead.'):
+        'but got a subclassed model instead.'):
       self.run_correctness_test(
           distribution,
           use_numpy,

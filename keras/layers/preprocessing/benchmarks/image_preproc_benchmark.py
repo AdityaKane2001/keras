@@ -24,8 +24,6 @@ import numpy as np
 import keras
 from keras.layers.preprocessing import image_preprocessing
 
-tf.compat.v1.enable_v2_behavior()
-
 LOWER = .2
 UPPER = .4
 BATCH_SIZE = 32
@@ -86,7 +84,7 @@ class BenchmarkLayer(tf.test.Benchmark):
       ds = ds.prefetch(batch_size)
       img_augmentation = functools.partial(
           image_augmentation, batch_size=batch_size)
-      ds = ds.map(img_augmentation)
+      ds = ds.map(img_augmentation, num_parallel_calls=8)
       starts.append(time.time())
       count = 0
       # Benchmarked code begins here.

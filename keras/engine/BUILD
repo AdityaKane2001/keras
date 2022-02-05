@@ -10,17 +10,11 @@ load("@org_keras//keras:keras.bzl", "cuda_py_test")
 package(
     # TODO(scottzhu): Remove non-keras deps from TF.
     default_visibility = [
-        "//keras:__subpackages__",
+        "//keras:friends",
         "//third_party/tensorflow/python:__pkg__",
         "//third_party/tensorflow/python/feature_column:__pkg__",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//keras/google/private_tf_api_test:__pkg__"],
 )
 
 py_library(
@@ -61,15 +55,15 @@ py_library(
         "//keras:callbacks_v1",
         "//keras:constraints",
         "//keras:losses",
-        "//keras:metrics",
-        "//keras:optimizers",
         "//keras:regularizers",
         "//keras/distribute",
         "//keras/distribute:distribute_coordinator_utils",
         "//keras/initializers",
+        "//keras/metrics",
         "//keras/mixed_precision:autocast_variable",
         "//keras/mixed_precision:loss_scale_optimizer",
         "//keras/mixed_precision:policy",
+        "//keras/optimizers",
         "//keras/saving",
         "//keras/utils:engine_utils",
         "//keras/utils:metrics_utils",
@@ -106,8 +100,8 @@ py_library(
         "//keras:backend",
         "//keras:constraints",
         "//keras/initializers",
-        # TODO(keras-team): Fix the cyclar deps between layer and metrics.
-        # "//keras:metrics",
+        # TODO(keras-team): Fix the circular deps between layer and metrics.
+        # "//keras/metrics",
         "//keras:regularizers",
         "//keras/mixed_precision:autocast_variable",
         "//keras/mixed_precision:loss_scale_optimizer",
@@ -283,12 +277,14 @@ cuda_py_test(
     ],
     deps = [
         ":engine",
+        ":input_layer",
         "//:expect_absl_installed",
         "//:expect_numpy_installed",
         "//:expect_tensorflow_installed",
         "//keras:backend",
         "//keras:combinations",
-        "//keras/layers:convolutional",
+        "//keras:testing_utils",
+        "//keras/layers/convolutional",
     ],
 )
 
@@ -375,9 +371,9 @@ tf_py_test(
         "//keras:callbacks",
         "//keras:combinations",
         "//keras:losses",
-        "//keras:metrics",
         "//keras:testing_utils",
         "//keras/layers",
+        "//keras/metrics",
         "//keras/utils:data_utils",
         "//keras/utils:np_utils",
     ],
@@ -451,10 +447,10 @@ tf_py_test(
         "//keras",
         "//keras:combinations",
         "//keras:losses",
-        "//keras:metrics",
         "//keras:testing_utils",
         "//keras/layers",
-        "//keras/optimizer_v2",
+        "//keras/metrics",
+        "//keras/optimizers/optimizer_v2",
         "//keras/utils:data_utils",
     ],
 )
@@ -516,7 +512,7 @@ tf_py_test(
     srcs = ["training_utils_v1_test.py"],
     python_version = "PY3",
     tags = [
-        "no_oss",  # TODO(b/135021748) reenable
+        "no_oss",  # TODO(b/135021748) re-enable
         "notsan",
     ],
     deps = [
@@ -615,7 +611,7 @@ tf_py_test(
         "//keras/layers",
         "//keras/legacy_tf_layers:core",
         "//keras/mixed_precision:policy",
-        "//keras/optimizer_v2",
+        "//keras/optimizers/optimizer_v2",
         "//keras/utils:tf_utils",
     ],
 )

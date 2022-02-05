@@ -14,15 +14,15 @@
 # ==============================================================================
 """Distribution tests for keras.layers.preprocessing.normalization."""
 
-import tensorflow.compat.v2 as tf
-
-import numpy as np
 
 import keras
 from keras import keras_parameterized
+from keras import testing_utils
 from keras.distribute import strategy_combinations
 from keras.layers.preprocessing import normalization
 from keras.layers.preprocessing import preprocessing_test_utils
+import numpy as np
+import tensorflow.compat.v2 as tf
 
 
 def _get_layer_computation_test_cases():
@@ -90,11 +90,14 @@ def _get_layer_computation_test_cases():
   return crossed_test_cases
 
 
+@testing_utils.run_v2_only
 @tf.__internal__.distribute.combinations.generate(
     tf.__internal__.test.combinations.times(
         tf.__internal__.test.combinations.combine(
             strategy=strategy_combinations.all_strategies +
-            strategy_combinations.multi_worker_mirrored_strategies,
+            strategy_combinations.multi_worker_mirrored_strategies +
+            strategy_combinations.parameter_server_strategies_single_worker +
+            strategy_combinations.parameter_server_strategies_multi_worker,
             mode=["eager"]), _get_layer_computation_test_cases()))
 class NormalizationTest(keras_parameterized.TestCase,
                         preprocessing_test_utils.PreprocessingLayerTest):
@@ -104,10 +107,8 @@ class NormalizationTest(keras_parameterized.TestCase,
     input_shape = tuple([None for _ in range(test_data.ndim - 1)])
     if use_dataset:
       # Keras APIs expect batched datasets
-      adapt_data = tf.data.Dataset.from_tensor_slices(adapt_data).batch(
-          test_data.shape[0] // 2)
-      test_data = tf.data.Dataset.from_tensor_slices(test_data).batch(
-          test_data.shape[0] // 2)
+      adapt_data = tf.data.Dataset.from_tensor_slices(adapt_data).batch(2)
+      test_data = tf.data.Dataset.from_tensor_slices(test_data).batch(2)
 
     with strategy.scope():
       input_data = keras.Input(shape=input_shape)
@@ -115,10 +116,9 @@ class NormalizationTest(keras_parameterized.TestCase,
       layer.adapt(adapt_data)
       output = layer(input_data)
       model = keras.Model(input_data, output)
-      output_data = model.predict(test_data)
+    output_data = model.predict(test_data)
     self.assertAllClose(expected, output_data)
 
 
 if __name__ == "__main__":
-  tf.compat.v1.enable_v2_behavior()
   tf.__internal__.distribute.multi_process_runner.test_main()

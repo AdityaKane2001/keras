@@ -2,25 +2,21 @@
 #   Contains the Keras layers (internal TensorFlow version).
 
 load("@org_keras//keras:keras.bzl", "cuda_py_test")
+
+# buildifier: disable=same-origin-load
 load("@org_keras//keras:keras.bzl", "tf_py_test")
 
 package(
     # TODO(scottzhu): Remove non-keras deps from TF.
     default_visibility = [
-        "//keras:__subpackages__",
+        "//keras:friends",
         "//third_party/tensorflow/python/distribute:__pkg__",
         "//third_party/tensorflow/python/feature_column:__pkg__",
         "//third_party/tensorflow/python/training/tracking:__pkg__",
         "//third_party/tensorflow/tools/pip_package:__pkg__",
-        "//third_party/tensorflow_models/official/vision/beta/projects/residual_mobilenet/modeling/backbones:__pkg__",
+        "//third_party/tensorflow_models/official/projects/residual_mobilenet/modeling/backbones:__pkg__",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//keras/google/private_tf_api_test:__pkg__"],
 )
 
 # A separate build for layers without serialization to avoid circular deps
@@ -33,28 +29,29 @@ py_library(
     ],
     srcs_version = "PY3",
     deps = [
-        ":advanced_activations",
-        ":convolutional",
         ":convolutional_recurrent",
         ":cudnn_recurrent",
-        ":dense_attention",
         ":einsum_dense",
         ":embeddings",
         ":kernelized",
-        ":local",
-        ":merge",
-        ":multi_head_attention",
         ":noise",
-        ":pooling",
         ":recurrent",
         ":recurrent_v2",
         ":rnn_cell_wrapper_v2",
         ":wrappers",
         "//keras/feature_column",
+        "//keras/layers/activation",
+        "//keras/layers/attention",
+        "//keras/layers/convolutional",
         "//keras/layers/core",
+        "//keras/layers/locally_connected",
+        "//keras/layers/merging",
         "//keras/layers/normalization",
+        "//keras/layers/pooling",
         "//keras/layers/preprocessing",
-        "//keras/premade",
+        "//keras/layers/regularization",
+        "//keras/layers/reshaping",
+        "//keras/premade_models",
         "//keras/utils:tf_utils",
     ],
 )
@@ -85,41 +82,6 @@ cuda_py_test(
         "//keras:combinations",
         "//keras:testing_utils",
         "//keras/layers",
-    ],
-)
-
-py_library(
-    name = "advanced_activations",
-    srcs = ["advanced_activations.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:input_spec",
-        "//keras/initializers",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "convolutional",
-    srcs = ["convolutional.py"],
-    srcs_version = "PY3",
-    deps = [
-        ":pooling",
-        "//:expect_tensorflow_installed",
-        "//keras:activations",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:input_spec",
-        "//keras/initializers",
-        "//keras/utils:engine_utils",
-        "//keras/utils:tf_utils",
     ],
 )
 
@@ -161,34 +123,8 @@ py_library(
 )
 
 py_library(
-    name = "dense_attention",
-    srcs = ["dense_attention.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
     name = "einsum_dense",
     srcs = ["einsum_dense.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:activations",
-        "//keras:base_layer",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/initializers",
-    ],
-)
-
-py_library(
-    name = "multi_head_attention",
-    srcs = ["multi_head_attention.py"],
     srcs_version = "PY3",
     deps = [
         "//:expect_tensorflow_installed",
@@ -214,59 +150,13 @@ py_library(
 )
 
 py_library(
-    name = "local",
-    srcs = ["local.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras:activations",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras:constraints",
-        "//keras:regularizers",
-        "//keras/engine:input_spec",
-        "//keras/initializers",
-        "//keras/utils:engine_utils",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "merge",
-    srcs = ["merge.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
     name = "noise",
     srcs = ["noise.py"],
     srcs_version = "PY3",
     deps = [
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras/utils:tf_utils",
-    ],
-)
-
-py_library(
-    name = "pooling",
-    srcs = ["pooling.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras:base_layer",
-        "//keras/engine:input_spec",
-        "//keras/utils:engine_utils",
+        "//keras/layers/regularization:alpha_dropout",
+        "//keras/layers/regularization:gaussian_dropout",
+        "//keras/layers/regularization:gaussian_noise",
     ],
 )
 
@@ -330,18 +220,6 @@ py_library(
 )
 
 tf_py_test(
-    name = "advanced_activations_test",
-    size = "medium",
-    srcs = ["advanced_activations_test.py"],
-    python_version = "PY3",
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-tf_py_test(
     name = "tensorflow_op_layer_test",
     size = "medium",
     srcs = ["tensorflow_op_layer_test.py"],
@@ -371,33 +249,6 @@ tf_py_test(
 )
 
 cuda_py_test(
-    name = "convolutional_test",
-    size = "medium",
-    srcs = ["convolutional_test.py"],
-    python_version = "PY3",
-    shard_count = 8,
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-cuda_py_test(
-    name = "convolutional_transpose_test",
-    size = "medium",
-    srcs = ["convolutional_transpose_test.py"],
-    python_version = "PY3",
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-cuda_py_test(
     name = "cudnn_recurrent_test",
     size = "medium",
     srcs = ["cudnn_recurrent_test.py"],
@@ -409,25 +260,6 @@ cuda_py_test(
     deps = [
         "//:expect_absl_installed",
         "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-        "//keras:combinations",
-    ],
-)
-
-tf_py_test(
-    name = "pooling_test",
-    size = "medium",
-    srcs = ["pooling_test.py"],
-    python_version = "PY3",
-    shard_count = 8,
-    # TODO(b/127881287): Re-enable.
-    tags = [
-        "no_windows_gpu",
-        "notsan",  # TODO(b/183962355)
-    ],
-    deps = [
-        "//:expect_absl_installed",
         "//:expect_tensorflow_installed",
         "//keras",
         "//keras:combinations",
@@ -449,80 +281,11 @@ tf_py_test(
 )
 
 tf_py_test(
-    name = "dense_attention_test",
-    size = "medium",
-    srcs = ["dense_attention_test.py"],
-    python_version = "PY3",
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-        "//keras:combinations",
-    ],
-)
-
-tf_py_test(
-    name = "multi_head_attention_test",
-    srcs = ["multi_head_attention_test.py"],
-    python_version = "PY3",
-    deps = [
-        ":multi_head_attention",
-        "//:expect_absl_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-tf_py_test(
     name = "einsum_dense_test",
     srcs = ["einsum_dense_test.py"],
     python_version = "PY3",
     deps = [
         ":einsum_dense",
-        "//:expect_absl_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-tf_py_test(
-    name = "local_test",
-    size = "medium",
-    srcs = ["local_test.py"],
-    python_version = "PY3",
-    shard_count = 4,
-    tags = ["no_windows"],
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-        "//keras:combinations",
-    ],
-)
-
-tf_py_test(
-    name = "merge_test",
-    size = "medium",
-    srcs = ["merge_test.py"],
-    python_version = "PY3",
-    shard_count = 4,
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-        "//keras:combinations",
-    ],
-)
-
-tf_py_test(
-    name = "noise_test",
-    size = "medium",
-    srcs = ["noise_test.py"],
-    python_version = "PY3",
-    deps = [
         "//:expect_absl_installed",
         "//:expect_tensorflow_installed",
         "//keras",
@@ -605,19 +368,6 @@ cuda_py_test(
     srcs = ["recurrent_v2_test.py"],
     python_version = "PY3",
     shard_count = 2,
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
-    ],
-)
-
-cuda_py_test(
-    name = "separable_convolutional_test",
-    size = "medium",
-    srcs = ["separable_convolutional_test.py"],
-    python_version = "PY3",
     deps = [
         "//:expect_absl_installed",
         "//:expect_numpy_installed",

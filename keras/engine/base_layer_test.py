@@ -31,7 +31,7 @@ from keras.engine import input_layer
 from keras.engine import sequential
 from keras.engine import training as training_lib
 from keras.legacy_tf_layers import core as legacy_core
-from keras.optimizer_v2 import rmsprop
+from keras.optimizers.optimizer_v2 import rmsprop
 from keras.utils import control_flow_util
 
 
@@ -57,6 +57,7 @@ class InvalidLayer(base_layer.Layer):
     raise ValueError('You did something wrong!')
 
 
+@testing_utils.run_v2_only
 class BaseLayerTest(keras_parameterized.TestCase):
 
   @combinations.generate(combinations.keras_mode_combinations())
@@ -93,10 +94,14 @@ class BaseLayerTest(keras_parameterized.TestCase):
       model.compile(rmsprop.RMSprop(0.001), loss='mse')
       model.train_on_batch(np.random.random((2, 3)), np.random.random((2, 3)))
     except tf.errors.OperatorNotAllowedInGraphError as e:
-      if 'iterating over `tf.Tensor` is not allowed' in str(e):
+      if 'iterating over `tf.Tensor`' in str(e):
+        raised_error = True
+      elif 'Iterating over a symbolic `tf.Tensor`' in str(e):
         raised_error = True
     except TypeError as e:
       if 'attempting to use Python control flow' in str(e):
+        raised_error = True
+      elif 'Attempting to use Python control flow' in str(e):
         raised_error = True
     self.assertTrue(raised_error)
 
@@ -715,6 +720,31 @@ class BaseLayerTest(keras_parameterized.TestCase):
     self.assertTrue(layer.built)
     self.assertEqual([None, 3], layer._build_input_shape.as_list())
 
+  def test_build_input_shape_list_with_none(self):
+
+    class CustomLayer(base_layer.Layer):
+
+      def build(self, input_shape):
+        super().build(input_shape)
+        self.build_shape = input_shape
+
+      def call(self, inputs):
+        return inputs[0]
+
+    layer = CustomLayer()
+    layer([tf.constant([1.0]), None, tf.constant([2.0])])
+    self.assertEqual(layer.build_shape, [[1], None, [1]])
+
+  @combinations.generate(combinations.combine(mode=['graph', 'eager']))
+  def test_layer_input_shape_raises_error(self):
+    layer = layers.Dense(3)
+    with self.assertRaisesRegex(AttributeError, 'no defined input shape'):
+      _ = layer.input_shape
+
+    layer(tf.ones((10, 1)))
+    with self.assertRaisesRegex(AttributeError, 'no defined input shape'):
+      _ = layer.input_shape
+
   @combinations.generate(combinations.combine(mode=['eager']))
   def test_custom_layer_training_arg(self):
     class CustomLayerNoTrainingArg(base_layer.Layer):
@@ -973,6 +1003,7 @@ class BaseLayerTest(keras_parameterized.TestCase):
     self.assertLen(model.non_trainable_variables, 2)
 
 
+@testing_utils.run_v2_only
 class SymbolicSupportTest(keras_parameterized.TestCase):
 
   def test_using_symbolic_tensors_with_tf_ops(self):
@@ -999,14 +1030,14 @@ class SymbolicSupportTest(keras_parameterized.TestCase):
     with tf.Graph().as_default():
       x1 = tf.ones((3, 3))
     x2 = tf.ones((3, 3))
-    with self.assertRaisesRegex(TypeError, 'Graph tensors'):
+    with self.assertRaises(TypeError):
       tf.matmul(x1, x2)
 
   def test_mixing_numpy_arrays_and_graph_tensors(self):
     with tf.Graph().as_default():
       x1 = tf.ones((3, 3))
     x2 = np.ones((3, 3), dtype='float32')
-    with self.assertRaisesRegex(TypeError, 'Graph tensors'):
+    with self.assertRaises(TypeError):
       tf.matmul(x1, x2)
 
   @combinations.generate(combinations.combine(mode=['graph', 'eager']))
@@ -1098,6 +1129,7 @@ class SymbolicSupportTest(keras_parameterized.TestCase):
       layer(x)
 
 
+@testing_utils.run_v2_only
 @combinations.generate(combinations.combine(mode=['graph', 'eager']))
 class NestedTrackingTest(tf.test.TestCase):
 
@@ -1142,7 +1174,7 @@ class NestedTrackingTest(tf.test.TestCase):
     self.assertEqual(len(layer.non_trainable_weights), 8)
     self.assertEqual(
         {id(v) for v in [layer.dense1, layer.dense2, layer.v1, layer.v2]},
-        {id(v) for _, v in layer._checkpoint_dependencies})
+        {id(v) for v in layer._trackable_children().values()})
 
   def test_nested_layer_updates_losses_tracking(self):
     # Test that updates and losses from nested sublayers are
@@ -1271,6 +1303,7 @@ class NestedTrackingTest(tf.test.TestCase):
     self.assertLen(s.weights, 4)
 
 
+@testing_utils.run_v2_only
 @combinations.generate(combinations.combine(mode=['graph', 'eager']))
 class NameScopingTest(keras_parameterized.TestCase):
 
@@ -1401,6 +1434,7 @@ class NameScopingTest(keras_parameterized.TestCase):
     ]
 
 
+@testing_utils.run_v2_only
 @combinations.generate(combinations.keras_mode_combinations(mode=['eager']))
 class AutographControlFlowTest(keras_parameterized.TestCase):
 
@@ -1679,6 +1713,7 @@ class IdentityLayer(base_layer.Layer):
     return inputs
 
 
+@testing_utils.run_v2_only
 @combinations.generate(combinations.combine(mode=['graph', 'eager']))
 class DTypeTest(keras_parameterized.TestCase):
 
@@ -1848,5 +1883,4 @@ class DTypeTest(keras_parameterized.TestCase):
 
 
 if __name__ == '__main__':
-  tf.compat.v1.enable_eager_execution()
   tf.test.main()

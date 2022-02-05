@@ -27,7 +27,7 @@ from keras import backend
 from keras import keras_parameterized
 from keras import metrics
 from keras import models
-from keras import optimizer_v1
+from keras.optimizers import optimizer_v1
 from keras import testing_utils
 
 
@@ -127,7 +127,9 @@ class TestModelCloning(keras_parameterized.TestCase):
         list(new_model._flatten_layers(include_self=False, recursive=False))[0],
         keras.layers.InputLayer)
     # The new models inputs should have the properties of the new input tensor
-    self.assertEqual(new_model.input_names[0], input_a.name)
+    if tf.__internal__.tf2.enabled():
+      # In TF1, the new model will be a:0
+      self.assertEqual(new_model.input_names[0], input_a.name)
     self.assertEqual(new_model.inputs[0].shape, input_a.shape)
     self.assertTrue(new_model._is_graph_network)
 
@@ -259,7 +261,7 @@ class TestModelCloning(keras_parameterized.TestCase):
     model = keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
         loss=keras.losses.CategoricalCrossentropy(),
-        optimizer=keras.optimizer_v2.rmsprop.RMSprop(lr=0.01),
+        optimizer=keras.optimizers.optimizer_v2.rmsprop.RMSprop(lr=0.01),
         metrics=['accuracy'])
     keras.models.clone_model(model)
 
@@ -450,7 +452,7 @@ class TestCloneAndBuildModel(keras_parameterized.TestCase):
     self.assertEqual('mse', model.loss)
     self.assertIsInstance(
         model.optimizer,
-        (optimizer_v1.RMSprop, keras.optimizer_v2.rmsprop.RMSprop))
+        (optimizer_v1.RMSprop, keras.optimizers.optimizer_v2.rmsprop.RMSprop))
 
   def _clone_and_build_test_helper(self, model, model_type):
     inp = np.random.random((10, 4))
@@ -547,7 +549,7 @@ class TestCloneAndBuildModel(keras_parameterized.TestCase):
     with tf.Graph().as_default():
       with self.session():
         model = testing_utils.get_small_sequential_mlp(3, 4)
-        optimizer = keras.optimizer_v2.adam.Adam()
+        optimizer = keras.optimizers.optimizer_v2.adam.Adam()
         model.compile(
             optimizer, 'mse', metrics=['acc', metrics.categorical_accuracy],
             )

@@ -29,7 +29,7 @@ from keras import testing_utils
 from keras.engine import input_layer
 from keras.engine import training
 from keras.engine import training_generator_v1
-from keras.optimizer_v2 import rmsprop
+from keras.optimizers.optimizer_v2 import rmsprop
 from keras.utils import data_utils
 
 
@@ -325,10 +325,8 @@ class TestGeneratorMethods(keras_parameterized.TestCase):
 
     x = [
         'I think juice is great',
-        'unknown is the best language since slicedbread',
-        'a a a a a a a',
-        'matmul'
-        'Yaks are also quite nice',
+        'unknown is the best language since slicedbread', 'a a a a a a a',
+        'matmul', 'Yaks are also quite nice'
     ]
     y = [1, 0, 0, 1, 1]
 

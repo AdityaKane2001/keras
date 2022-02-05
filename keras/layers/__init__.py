@@ -40,78 +40,85 @@ from keras.layers.preprocessing.image_preprocessing import Resizing
 from keras.layers.preprocessing.image_preprocessing import Rescaling
 
 # Preprocessing layers.
-from keras.layers.preprocessing.category_crossing import CategoryCrossing
 from keras.layers.preprocessing.category_encoding import CategoryEncoding
 from keras.layers.preprocessing.discretization import Discretization
 from keras.layers.preprocessing.hashing import Hashing
+from keras.layers.preprocessing.hashed_crossing import HashedCrossing
 from keras.layers.preprocessing.integer_lookup import IntegerLookup
 from keras.layers.preprocessing.normalization import Normalization
 from keras.layers.preprocessing.string_lookup import StringLookup
 from keras.layers.preprocessing.text_vectorization import TextVectorization
 
-# Advanced activations.
-from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.advanced_activations import PReLU
-from keras.layers.advanced_activations import ELU
-from keras.layers.advanced_activations import ReLU
-from keras.layers.advanced_activations import ThresholdedReLU
-from keras.layers.advanced_activations import Softmax
+# Activations layers.
+from keras.layers.activation.relu import ReLU
+from keras.layers.activation.softmax import Softmax
+from keras.layers.activation.leaky_relu import LeakyReLU
+from keras.layers.activation.prelu import PReLU
+from keras.layers.activation.elu import ELU
+from keras.layers.activation.thresholded_relu import ThresholdedReLU
+
+# Attention layers.
+from keras.layers.attention.multi_head_attention import MultiHeadAttention
+from keras.layers.attention.attention import Attention
+from keras.layers.attention.additive_attention import AdditiveAttention
 
 # Convolution layers.
-from keras.layers.convolutional import Conv1D
-from keras.layers.convolutional import Conv2D
-from keras.layers.convolutional import Conv3D
-from keras.layers.convolutional import Conv1DTranspose
-from keras.layers.convolutional import Conv2DTranspose
-from keras.layers.convolutional import Conv3DTranspose
-from keras.layers.convolutional import SeparableConv1D
-from keras.layers.convolutional import SeparableConv2D
+from keras.layers.convolutional.conv1d import Conv1D
+from keras.layers.convolutional.conv2d import Conv2D
+from keras.layers.convolutional.conv3d import Conv3D
+from keras.layers.convolutional.conv1d_transpose import Conv1DTranspose
+from keras.layers.convolutional.conv2d_transpose import Conv2DTranspose
+from keras.layers.convolutional.conv3d_transpose import Conv3DTranspose
+from keras.layers.convolutional.depthwise_conv1d import DepthwiseConv1D
+from keras.layers.convolutional.depthwise_conv2d import DepthwiseConv2D
+from keras.layers.convolutional.separable_conv1d import SeparableConv1D
+from keras.layers.convolutional.separable_conv2d import SeparableConv2D
 
 # Convolution layer aliases.
-from keras.layers.convolutional import Convolution1D
-from keras.layers.convolutional import Convolution2D
-from keras.layers.convolutional import Convolution3D
-from keras.layers.convolutional import Convolution2DTranspose
-from keras.layers.convolutional import Convolution3DTranspose
-from keras.layers.convolutional import SeparableConvolution1D
-from keras.layers.convolutional import SeparableConvolution2D
-from keras.layers.convolutional import DepthwiseConv1D
-from keras.layers.convolutional import DepthwiseConv2D
+from keras.layers.convolutional.conv1d import Convolution1D
+from keras.layers.convolutional.conv2d import Convolution2D
+from keras.layers.convolutional.conv3d import Convolution3D
+from keras.layers.convolutional.conv1d_transpose import Convolution1DTranspose
+from keras.layers.convolutional.conv2d_transpose import Convolution2DTranspose
+from keras.layers.convolutional.conv3d_transpose import Convolution3DTranspose
+from keras.layers.convolutional.separable_conv1d import SeparableConvolution1D
+from keras.layers.convolutional.separable_conv2d import SeparableConvolution2D
 
-# Image processing layers.
-from keras.layers.convolutional import UpSampling1D
-from keras.layers.convolutional import UpSampling2D
-from keras.layers.convolutional import UpSampling3D
-from keras.layers.convolutional import ZeroPadding1D
-from keras.layers.convolutional import ZeroPadding2D
-from keras.layers.convolutional import ZeroPadding3D
-from keras.layers.convolutional import Cropping1D
-from keras.layers.convolutional import Cropping2D
-from keras.layers.convolutional import Cropping3D
+# Regularization layers.
+from keras.layers.regularization.dropout import Dropout
+from keras.layers.regularization.spatial_dropout1d import SpatialDropout1D
+from keras.layers.regularization.spatial_dropout2d import SpatialDropout2D
+from keras.layers.regularization.spatial_dropout3d import SpatialDropout3D
+from keras.layers.regularization.gaussian_dropout import GaussianDropout
+from keras.layers.regularization.gaussian_noise import GaussianNoise
+from keras.layers.regularization.activity_regularization import ActivityRegularization
+from keras.layers.regularization.alpha_dropout import AlphaDropout
+
+# Reshaping layers.
+from keras.layers.reshaping.cropping1d import Cropping1D
+from keras.layers.reshaping.cropping2d import Cropping2D
+from keras.layers.reshaping.cropping3d import Cropping3D
+from keras.layers.reshaping.flatten import Flatten
+from keras.layers.reshaping.permute import Permute
+from keras.layers.reshaping.repeat_vector import RepeatVector
+from keras.layers.reshaping.reshape import Reshape
+from keras.layers.reshaping.up_sampling1d import UpSampling1D
+from keras.layers.reshaping.up_sampling2d import UpSampling2D
+from keras.layers.reshaping.up_sampling3d import UpSampling3D
+from keras.layers.reshaping.zero_padding1d import ZeroPadding1D
+from keras.layers.reshaping.zero_padding2d import ZeroPadding2D
+from keras.layers.reshaping.zero_padding3d import ZeroPadding3D
 
 # Core layers.
 from keras.layers.core.activation import Activation
-from keras.layers.core.activity_regularization import ActivityRegularization
 from keras.layers.core.dense import Dense
-from keras.layers.core.dropout import Dropout
-from keras.layers.core.flatten import Flatten
 from keras.layers.core.lambda_layer import Lambda
 from keras.layers.core.masking import Masking
-from keras.layers.core.permute import Permute
-from keras.layers.core.repeat_vector import RepeatVector
-from keras.layers.core.reshape import Reshape
-from keras.layers.core.spatial_dropout import SpatialDropout1D
-from keras.layers.core.spatial_dropout import SpatialDropout2D
-from keras.layers.core.spatial_dropout import SpatialDropout3D
 from keras.layers.core.tf_op_layer import ClassMethod
 from keras.layers.core.tf_op_layer import InstanceMethod
 from keras.layers.core.tf_op_layer import InstanceProperty
 from keras.layers.core.tf_op_layer import SlicingOpLambda
 from keras.layers.core.tf_op_layer import TFOpLambda
-
-# Dense Attention layers.
-from keras.layers.dense_attention import AdditiveAttention
-from keras.layers.dense_attention import Attention
 
 # Embedding layers.
 from keras.layers.embeddings import Embedding
@@ -119,39 +126,34 @@ from keras.layers.embeddings import Embedding
 # Einsum-based dense layer/
 from keras.layers.einsum_dense import EinsumDense
 
-# Multi-head Attention layer.
-from keras.layers.multi_head_attention import MultiHeadAttention
-
 # Locally-connected layers.
-from keras.layers.local import LocallyConnected1D
-from keras.layers.local import LocallyConnected2D
+from keras.layers.locally_connected.locally_connected1d import LocallyConnected1D
+from keras.layers.locally_connected.locally_connected2d import LocallyConnected2D
 
-# Merge layers.
-from keras.layers.merge import Add
-from keras.layers.merge import Subtract
-from keras.layers.merge import Multiply
-from keras.layers.merge import Average
-from keras.layers.merge import Maximum
-from keras.layers.merge import Minimum
-from keras.layers.merge import Concatenate
-from keras.layers.merge import Dot
-from keras.layers.merge import add
-from keras.layers.merge import subtract
-from keras.layers.merge import multiply
-from keras.layers.merge import average
-from keras.layers.merge import maximum
-from keras.layers.merge import minimum
-from keras.layers.merge import concatenate
-from keras.layers.merge import dot
+# Merging layers.
+from keras.layers.merging.add import Add
+from keras.layers.merging.subtract import Subtract
+from keras.layers.merging.multiply import Multiply
+from keras.layers.merging.average import Average
+from keras.layers.merging.maximum import Maximum
+from keras.layers.merging.minimum import Minimum
+from keras.layers.merging.concatenate import Concatenate
+from keras.layers.merging.dot import Dot
 
-# Noise layers.
-from keras.layers.noise import AlphaDropout
-from keras.layers.noise import GaussianNoise
-from keras.layers.noise import GaussianDropout
+# Merging functions.
+from keras.layers.merging.add import add
+from keras.layers.merging.subtract import subtract
+from keras.layers.merging.multiply import multiply
+from keras.layers.merging.average import average
+from keras.layers.merging.maximum import maximum
+from keras.layers.merging.minimum import minimum
+from keras.layers.merging.concatenate import concatenate
+from keras.layers.merging.dot import dot
 
 # Normalization layers.
 from keras.layers.normalization.layer_normalization import LayerNormalization
 from keras.layers.normalization.batch_normalization import SyncBatchNormalization
+from keras.layers.normalization.unit_normalization import UnitNormalization
 
 if tf.__internal__.tf2.enabled():
   from keras.layers.normalization.batch_normalization import BatchNormalization
@@ -166,32 +168,32 @@ else:
 from keras.layers.kernelized import RandomFourierFeatures
 
 # Pooling layers.
-from keras.layers.pooling import MaxPooling1D
-from keras.layers.pooling import MaxPooling2D
-from keras.layers.pooling import MaxPooling3D
-from keras.layers.pooling import AveragePooling1D
-from keras.layers.pooling import AveragePooling2D
-from keras.layers.pooling import AveragePooling3D
-from keras.layers.pooling import GlobalAveragePooling1D
-from keras.layers.pooling import GlobalAveragePooling2D
-from keras.layers.pooling import GlobalAveragePooling3D
-from keras.layers.pooling import GlobalMaxPooling1D
-from keras.layers.pooling import GlobalMaxPooling2D
-from keras.layers.pooling import GlobalMaxPooling3D
+from keras.layers.pooling.average_pooling1d import AveragePooling1D
+from keras.layers.pooling.average_pooling2d import AveragePooling2D
+from keras.layers.pooling.average_pooling3d import AveragePooling3D
+from keras.layers.pooling.max_pooling1d import MaxPooling1D
+from keras.layers.pooling.max_pooling2d import MaxPooling2D
+from keras.layers.pooling.max_pooling3d import MaxPooling3D
+from keras.layers.pooling.global_average_pooling1d import GlobalAveragePooling1D
+from keras.layers.pooling.global_average_pooling2d import GlobalAveragePooling2D
+from keras.layers.pooling.global_average_pooling3d import GlobalAveragePooling3D
+from keras.layers.pooling.global_max_pooling1d import GlobalMaxPooling1D
+from keras.layers.pooling.global_max_pooling2d import GlobalMaxPooling2D
+from keras.layers.pooling.global_max_pooling3d import GlobalMaxPooling3D
 
 # Pooling layer aliases.
-from keras.layers.pooling import MaxPool1D
-from keras.layers.pooling import MaxPool2D
-from keras.layers.pooling import MaxPool3D
-from keras.layers.pooling import AvgPool1D
-from keras.layers.pooling import AvgPool2D
-from keras.layers.pooling import AvgPool3D
-from keras.layers.pooling import GlobalAvgPool1D
-from keras.layers.pooling import GlobalAvgPool2D
-from keras.layers.pooling import GlobalAvgPool3D
-from keras.layers.pooling import GlobalMaxPool1D
-from keras.layers.pooling import GlobalMaxPool2D
-from keras.layers.pooling import GlobalMaxPool3D
+from keras.layers.pooling.average_pooling1d import AvgPool1D
+from keras.layers.pooling.average_pooling2d import AvgPool2D
+from keras.layers.pooling.average_pooling3d import AvgPool3D
+from keras.layers.pooling.max_pooling1d import MaxPool1D
+from keras.layers.pooling.max_pooling2d import MaxPool2D
+from keras.layers.pooling.max_pooling3d import MaxPool3D
+from keras.layers.pooling.global_average_pooling1d import GlobalAvgPool1D
+from keras.layers.pooling.global_average_pooling2d import GlobalAvgPool2D
+from keras.layers.pooling.global_average_pooling3d import GlobalAvgPool3D
+from keras.layers.pooling.global_max_pooling1d import GlobalMaxPool1D
+from keras.layers.pooling.global_max_pooling2d import GlobalMaxPool2D
+from keras.layers.pooling.global_max_pooling3d import GlobalMaxPool3D
 
 # Recurrent layers.
 from keras.layers.recurrent import RNN
@@ -250,7 +252,9 @@ from keras.layers.rnn_cell_wrapper_v2 import ResidualWrapper
 # Serialization functions.
 from keras.layers import serialization
 from keras.layers.serialization import deserialize
+from keras.layers.serialization import deserialize_from_json
 from keras.layers.serialization import serialize
+from keras.layers.serialization import get_builtin_layer
 
 
 class VersionAwareLayers:

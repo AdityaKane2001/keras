@@ -15,18 +15,15 @@
 # pylint: disable=protected-access
 """Utils related to keras metrics."""
 
-import tensorflow.compat.v2 as tf
-
+from enum import Enum
 import functools
 import weakref
-
-from enum import Enum
-
-import numpy as np
 from keras import backend
 from keras.utils import losses_utils
 from keras.utils import tf_utils
 from keras.utils.generic_utils import to_list
+import numpy as np
+import tensorflow.compat.v2 as tf
 
 NEG_INF = -1e10
 
@@ -99,7 +96,6 @@ def result_wrapper(result_fn):
 
   def decorated(metric_obj, *args):
     """Decorated function with merge_call."""
-    has_strategy = tf.distribute.has_strategy()
     replica_context = tf.distribute.get_replica_context()
 
     # The purpose of using `merge_call` to call `result()` is to trigger cross
@@ -120,14 +116,12 @@ def result_wrapper(result_fn):
     #    if NCCL is used to do the aggregation, the program will hang because
     #    NCCL ops are only launched on the non-pruned first replica.
     #
-    # We condition on strategy.extended._use_merge_call() since we know if it is
-    # false, the program uses `jit_compile` to compile replica fn, meaning it is
+    # We condition on strategy_supports_no_merge_call() since we know if it is
+    # True, the program uses `jit_compile` to compile replica fn, meaning it is
     # not V1 training (hence #1 is okay), and no pruning will happen as
     # compiled functions are not inlined (hence #2 is okay).
-
-    if (not has_strategy or replica_context is None or
-        not tf.distribute.get_strategy(
-        ).extended._use_merge_call()):
+    if (replica_context is None or
+        tf.__internal__.distribute.strategy_supports_no_merge_call()):
       with tf.__internal__.distribute.variable_sync_on_read_context():
         raw_result = result_fn(*args)
         # Results need to be wrapped in a `tf.identity` op to ensure
@@ -472,7 +466,7 @@ def is_evenly_distributed_thresholds(thresholds):
 
   We could leverage evenly distributed thresholds to use less memory when
   calculate metrcis like AUC where each individual threshold need to be
-  evaluted.
+  evaluated.
 
   Args:
     thresholds: A python list or tuple, or 1D numpy array whose value is ranged
@@ -605,11 +599,11 @@ def update_confusion_matrix_variables(variables_to_update,
         f'Valid variable key options are: "{list(ConfusionMatrix)}"')
 
   with tf.control_dependencies([
-      tf.compat.v1.assert_greater_equal(
+      tf.debugging.assert_greater_equal(
           y_pred,
           tf.cast(0.0, dtype=y_pred.dtype),
           message='predictions must be >= 0'),
-      tf.compat.v1.assert_less_equal(
+      tf.debugging.assert_less_equal(
           y_pred,
           tf.cast(1.0, dtype=y_pred.dtype),
           message='predictions must be <= 1')
@@ -642,7 +636,7 @@ def update_confusion_matrix_variables(variables_to_update,
   if y_pred.shape.ndims == 1:
     num_labels = 1
   else:
-    num_labels = tf.raw_ops.Prod(input=pred_shape[1:], axis=0)
+    num_labels = tf.math.reduce_prod(pred_shape[1:], axis=0)
   thresh_label_tile = tf.where(one_thresh, num_labels,
                                          tf.ones([], dtype=tf.int32))
 
@@ -841,7 +835,7 @@ def _assert_splits_match(nested_splits_lists):
     if len(splits_list) != len(nested_splits_lists[0]):
       raise ValueError(error_msg)
   return [
-      tf.compat.v1.assert_equal(s1, s2, message=error_msg)  # pylint: disable=g-complex-comprehension
+      tf.debugging.assert_equal(s1, s2, message=error_msg)  # pylint: disable=g-complex-comprehension
       for splits_list in nested_splits_lists[1:]
       for (s1, s2) in zip(nested_splits_lists[0], splits_list)
   ]

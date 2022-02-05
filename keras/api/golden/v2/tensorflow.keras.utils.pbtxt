@@ -25,6 +25,10 @@ tf_module {
     mtype: "<type \'type\'>"
   }
   member {
+    name: "SidecarEvaluator"
+    mtype: "<type \'type\'>"
+  }
+  member {
     name: "custom_object_scope"
     mtype: "<type \'type\'>"
   }
@@ -39,6 +43,14 @@ tf_module {
   member_method {
     name: "deserialize_keras_object"
     argspec: "args=[\'identifier\', \'module_objects\', \'custom_objects\', \'printable_module_name\'], varargs=None, keywords=None, defaults=[\'None\', \'None\', \'object\'], "
+  }
+  member_method {
+    name: "disable_interactive_logging"
+    argspec: "args=[], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
+    name: "enable_interactive_logging"
+    argspec: "args=[], varargs=None, keywords=None, defaults=None"
   }
   member_method {
     name: "get_custom_objects"
@@ -69,6 +81,10 @@ tf_module {
     argspec: "args=[\'img\', \'data_format\', \'dtype\'], varargs=None, keywords=None, defaults=[\'None\', \'None\'], "
   }
   member_method {
+    name: "is_interactive_logging_enabled"
+    argspec: "args=[], varargs=None, keywords=None, defaults=None"
+  }
+  member_method {
     name: "load_img"
     argspec: "args=[\'path\', \'grayscale\', \'color_mode\', \'target_size\', \'interpolation\'], varargs=None, keywords=None, defaults=[\'False\', \'rgb\', \'None\', \'nearest\'], "
   }
@@ -83,6 +99,10 @@ tf_module {
   member_method {
     name: "pack_x_y_sample_weight"
     argspec: "args=[\'x\', \'y\', \'sample_weight\'], varargs=None, keywords=None, defaults=[\'None\', \'None\'], "
+  }
+  member_method {
+    name: "pad_sequences"
+    argspec: "args=[\'sequences\', \'maxlen\', \'dtype\', \'padding\', \'truncating\', \'value\'], varargs=None, keywords=None, defaults=[\'None\', \'int32\', \'pre\', \'pre\', \'0.0\'], "
   }
   member_method {
     name: "plot_model"

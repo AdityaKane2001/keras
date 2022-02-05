@@ -77,7 +77,7 @@ class RandomNormal(tf.compat.v1.random_normal_initializer):
   Random seed behavior:
   Also be aware that if you pass a seed to the TF2 initializer
   API it will reuse that same seed for every single initialization
-  (unlike the TF1 intializer)
+  (unlike the TF1 initializer)
 
   #### Structural Mapping to Native TF2
 
@@ -150,7 +150,7 @@ class RandomNormal(tf.compat.v1.random_normal_initializer):
   >>> a = initializer(shape=(2, 2))
   >>> b = initializer(shape=(2, 2))
   >>> tf.reduce_sum(a - b) == 0
-  <tf.Tensor: shape=(), dtype=bool, numpy=True>
+  <tf.Tensor: shape=(), dtype=bool, numpy=False>
 
   @end_compatibility
   """
@@ -192,7 +192,7 @@ class RandomUniform(tf.compat.v1.random_uniform_initializer):
 
   Also be aware that if you pass a seed to the TF2 initializer
   API it will reuse that same seed for every single initialization
-  (unlike the TF1 intializer)
+  (unlike the TF1 initializer)
 
   #### Structural Mapping to Native TF2
 
@@ -267,7 +267,7 @@ class RandomUniform(tf.compat.v1.random_uniform_initializer):
   >>> a = initializer(shape=(2, 2))
   >>> b = initializer(shape=(2, 2))
   >>> tf.reduce_sum(a - b) == 0
-  <tf.Tensor: shape=(), dtype=bool, numpy=True>
+  <tf.Tensor: shape=(), dtype=bool, numpy=False>
 
   @end_compatibility
   """
@@ -313,7 +313,7 @@ class TruncatedNormal(tf.compat.v1.truncated_normal_initializer):
   Random seed behavior:
   Also be aware that if you pass a seed to the TF2 initializer
   API it will reuse that same seed for every single initialization
-  (unlike the TF1 intializer)
+  (unlike the TF1 initializer)
 
   #### Structural Mapping to Native TF2
 
@@ -386,7 +386,7 @@ class TruncatedNormal(tf.compat.v1.truncated_normal_initializer):
   >>> a = initializer(shape=(2, 2))
   >>> b = initializer(shape=(2, 2))
   >>> tf.reduce_sum(a - b) == 0
-  <tf.Tensor: shape=(), dtype=bool, numpy=True>
+  <tf.Tensor: shape=(), dtype=bool, numpy=False>
 
   @end_compatibility
   """

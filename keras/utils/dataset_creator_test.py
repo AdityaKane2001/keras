@@ -19,15 +19,17 @@ import tensorflow.compat.v2 as tf
 from absl.testing import parameterized
 from tensorflow.python.distribute.cluster_resolver import SimpleClusterResolver
 from keras import combinations
+from keras import testing_utils
 from keras.distribute import multi_worker_testing_utils
 from keras.engine import data_adapter
 from keras.engine import sequential
 from keras.layers import core as core_layers
-from keras.optimizer_v2 import gradient_descent
+from keras.optimizers.optimizer_v2 import gradient_descent
 from keras.utils import dataset_creator
 from tensorflow.python.training.server_lib import ClusterSpec
 
 
+@testing_utils.run_v2_only
 class DatasetCreatorTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_dataset_creator(self):
@@ -139,5 +141,4 @@ class DatasetCreatorTest(tf.test.TestCase, parameterized.TestCase):
 
 
 if __name__ == "__main__":
-  tf.compat.v1.enable_v2_behavior()
   tf.test.main()

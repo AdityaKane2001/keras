@@ -253,7 +253,7 @@ class TestSavedModelFormatAllModes(keras_parameterized.TestCase):
     with previous_losses[0].graph.as_default():
       # If we try to compare symbolic Tensors in eager mode assertAllEqual will
       # return False even if they are the same Tensor.
-      self.assertAllEqual(previous_losses, model.losses)
+      self.assertEqual(previous_losses, model.losses)
 
     if tf.executing_eagerly():
       # Test that eager losses are maintained.
@@ -386,7 +386,8 @@ class TestSavedModelFormatAllModes(keras_parameterized.TestCase):
     model = testing_utils.get_model_from_layers(
         [layer], input_shape=[3], model_type='functional')
     model.save(saved_model_dir, save_format='tf')
-    with self.assertRaisesRegex(RuntimeError, 'Unable to restore a layer of'):
+    with self.assertRaisesRegex(ValueError,
+                                'Unknown layer: LayerThatShouldFailIfNotAdded'):
       _ = keras_load.load(saved_model_dir)
 
   def test_must_restore_from_config_custom_object_scope(self):
@@ -631,9 +632,15 @@ class TestSavedModelFormatAllModes(keras_parameterized.TestCase):
     saved_model_dir = self._save_model_dir()
     model.save(saved_model_dir, save_format='tf')
 
-    loaded = keras_load.load(saved_model_dir)
+    with keras.utils.generic_utils.custom_object_scope({'Model': Model}):
+      loaded = keras_load.load(saved_model_dir)
     self.assertAllClose(prediction,
                         loaded.predict(np.ones([1, 3]).astype('float32')))
+
+    loaded_without_scope = keras_load.load(saved_model_dir)
+    if tf.__internal__.tf2.enabled():
+      with self.assertRaises(NotImplementedError):
+        loaded_without_scope.predict(np.ones([1, 3]).astype('float32'))
 
   def testFeatureColumns(self):
     # TODO(b/120099662): Error with table initialization with Keras models in
@@ -819,6 +826,29 @@ class TestSavedModelFormatAllModes(keras_parameterized.TestCase):
     self.assertAllClose(layer.states, loaded_layer.states)
     self.assertAllClose(model(input_arr), loaded(input_arr))
 
+  def testSaveBidirectionalLSTM(self):
+    # Make sure that the input spec of an unrolled RNN is not used when wrapped
+    # in a Bidirectional layer. https://github.com/keras-team/keras/issues/15454
+    input_layer = keras.Input(
+        batch_input_shape=(1, 15, 128), name='input', dtype=tf.float32)
+    lstm_layer = keras.layers.Bidirectional(
+        keras.layers.LSTM(
+            units=64,
+            name='lstm',
+            dropout=0.2,
+            trainable=False,
+            unroll=True,
+        )
+    )
+    output_layer = lstm_layer(input_layer)
+    model = keras.Model(input_layer, output_layer)
+    saved_model_dir = self._save_model_dir()
+    self.evaluate(tf.compat.v1.variables_initializer(model.variables))
+    model.save(saved_model_dir, save_format='tf')
+    loaded = keras_load.load(saved_model_dir)
+    input_arr = np.random.random((1, 15, 128)).astype('float32')
+    self.assertAllClose(model(input_arr), loaded(input_arr))
+
   @parameterized.named_parameters([('stateful', True), ('stateless', False)])
   def testSaveConvLSTM2D(self, stateful):
     data_format = 'channels_first'
@@ -950,9 +980,9 @@ class TestSavedModelFormat(tf.test.TestCase):
     self.addCleanup(shutil.rmtree, temp_dir, ignore_errors=True)
     return os.path.join(temp_dir, dirname)
 
-  def test_load_with_partially_failed_serialization(self):
+  def test_load_with_custom_model_and_layer(self):
 
-    class BadCustomLayer(keras.layers.Layer):
+    class CustomLayer(keras.layers.Layer):
 
       def __call__(self, inputs):
         return inputs
@@ -961,7 +991,7 @@ class TestSavedModelFormat(tf.test.TestCase):
 
       def __init__(self):
         super(Model, self).__init__()
-        self.layer = BadCustomLayer()
+        self.layer = CustomLayer()
 
       @tf.function(
           input_signature=[tf.TensorSpec([None, 1])])
@@ -974,10 +1004,32 @@ class TestSavedModelFormat(tf.test.TestCase):
     saved_model_dir = self._save_model_dir()
     model.save(saved_model_dir, save_format='tf')
 
-    loaded = keras_load.load(saved_model_dir)
+    # Even if the `CustomLayer` is not provided in `custom_object_scope`,
+    # `Model` still has that reference.
+    with keras.utils.generic_utils.custom_object_scope({'Model': Model}):
+      loaded = keras_load.load(saved_model_dir)
     self.assertAllEqual([[1.0]], self.evaluate(loaded(inp)))
-    with self.assertRaisesRegex(ValueError, 'call function was not serialized'):
-      loaded.layer(inp)
+    self.assertAllEqual([[1.0]], self.evaluate(loaded.layer(inp)))
+    self.assertIsInstance(loaded.layer, CustomLayer)
+
+    # If `CustomLayer` is provided in `custom_object_scope`, it should of
+    # course use that custom class.
+    with keras.utils.generic_utils.custom_object_scope({
+        'Model': Model,
+        'CustomLayer': CustomLayer
+    }):
+      loaded = keras_load.load(saved_model_dir)
+    self.assertAllEqual([[1.0]], self.evaluate(loaded(inp)))
+    self.assertAllEqual([[1.0]], self.evaluate(loaded.layer(inp)))
+    self.assertIsInstance(loaded.layer, CustomLayer)
+
+    # If the symbol is no longer available, loading should raise an error.
+    del CustomLayer
+    with keras.utils.generic_utils.custom_object_scope({'Model': Model}):
+      with self.assertRaisesRegex(
+          NameError, 'free variable \'CustomLayer\' referenced '
+          'before assignment in enclosing scope'):
+        loaded = keras_load.load(saved_model_dir)
 
   def test_save_without_tracing(self):
 
@@ -1127,7 +1179,8 @@ class TestLayerCallTracing(tf.test.TestCase, parameterized.TestCase):
     fn = call_collection.add_function(layer.call, 'call', True)
     fn(np.ones((2, 3)))
 
-    self.assertAllEqual(previous_losses, layer.losses)
+    self.assertAllEqual(self.evaluate(previous_losses),
+                        self.evaluate(layer.losses))
 
 
 @generic_utils.register_keras_serializable('Testing')

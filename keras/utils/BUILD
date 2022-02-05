@@ -1,23 +1,16 @@
 # Description:
 #   Contains the Keras Utilities (internal TensorFlow version).
 
-load("@org_keras//keras:keras.bzl", "cuda_py_test")
 load("@org_keras//keras:keras.bzl", "tf_py_test")
 
 package(
     # TODO(scottzhu): Remove non-keras deps from TF.
     default_visibility = [
-        "//keras:__subpackages__",
+        "//keras:friends",
         "//third_party/tensorflow/python/feature_column:__pkg__",
         "//third_party/tensorflow/tools/pip_package:__pkg__",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//keras/google/private_tf_api_test:__pkg__"],
 )
 
 py_library(
@@ -41,8 +34,8 @@ py_library(
         ":control_flow_util",
         ":engine_utils",
         ":generic_utils",
+        ":keras_doctest_lib",
         ":layer_utils",
-        ":multi_gpu_utils",
         ":np_utils",
         ":traceback_utils",
         ":vis_utils",
@@ -95,6 +88,16 @@ py_library(
     name = "io_utils",
     srcs = ["io_utils.py"],
     srcs_version = "PY3",
+    deps = [
+        ":keras_logging",
+        "//:expect_tensorflow_installed",
+    ],
+)
+
+py_library(
+    name = "keras_logging",
+    srcs = ["keras_logging.py"],
+    srcs_version = "PY3",
 )
 
 py_library(
@@ -123,6 +126,7 @@ py_library(
     ],
     srcs_version = "PY3",
     deps = [
+        ":io_utils",
         ":tf_contextlib",
         ":tf_inspect",
         "//:expect_numpy_installed",
@@ -177,19 +181,6 @@ py_library(
     srcs_version = "PY3",
     deps = [
         "//:expect_tensorflow_installed",
-    ],
-)
-
-py_library(
-    name = "multi_gpu_utils",
-    srcs = [
-        "multi_gpu_utils.py",
-    ],
-    srcs_version = "PY3",
-    deps = [
-        "//:expect_tensorflow_installed",
-        "//keras:backend",
-        "//keras/layers",
     ],
 )
 
@@ -351,6 +342,8 @@ tf_py_test(
         "notsan",
     ],
     deps = [
+        ":io_utils",
+        ":keras_logging",
         "//:expect_absl_installed",
         "//:expect_numpy_installed",
         "//:expect_tensorflow_installed",
@@ -393,23 +386,6 @@ tf_py_test(
         ":layer_utils",
         "//:expect_absl_installed",
         "//:expect_tensorflow_installed",
-    ],
-)
-
-cuda_py_test(
-    name = "multi_gpu_utils_test",
-    srcs = ["multi_gpu_utils_test.py"],
-    python_version = "PY3",
-    tags = [
-        "guitar",
-        "multi_gpu",
-    ],
-    xla_enable_strict_auto_jit = True,
-    deps = [
-        "//:expect_absl_installed",
-        "//:expect_numpy_installed",
-        "//:expect_tensorflow_installed",
-        "//keras",
     ],
 )
 
@@ -473,5 +449,32 @@ tf_py_test(
     deps = [
         "//:expect_tensorflow_installed",
         "//keras",
+    ],
+)
+
+# TODO(mattdangerw): For now, keras will maintain it's own doc checker.
+# If tensorflow exposes one, we could consider depending on that directly.
+py_library(
+    name = "keras_doctest_lib",
+    srcs = ["keras_doctest_lib.py"],
+    srcs_version = "PY3",
+    deps = [
+        "//:expect_numpy_installed",
+    ],
+)
+
+py_test(
+    name = "keras_doctest_lib_test",
+    srcs = ["keras_doctest_lib_test.py"],
+    python_version = "PY3",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":keras_doctest_lib",
+        "//:expect_absl_installed",
+        "//:expect_tensorflow_installed",
     ],
 )

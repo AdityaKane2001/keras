@@ -14,11 +14,8 @@
 #,============================================================================
 """Tests for layer graphs construction & handling."""
 
-import tensorflow.compat.v2 as tf
-
 import warnings
 
-import numpy as np
 from keras import backend
 from keras import combinations
 from keras import initializers
@@ -34,7 +31,14 @@ from keras.engine import sequential
 from keras.engine import training as training_lib
 from keras.utils import layer_utils
 from keras.utils import tf_utils
+
+import numpy as np
+import tensorflow.compat.v2 as tf
+
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import extension_type
 from tensorflow.python.training.tracking.util import Checkpoint
+# pylint: enable=g-direct-tensorflow-import
 
 
 class NetworkConstructionTest(keras_parameterized.TestCase):
@@ -1169,6 +1173,36 @@ class NetworkConstructionTest(keras_parameterized.TestCase):
     self.assertEqual(history.history['loss'][0], 0.0)
 
   @combinations.generate(combinations.keras_mode_combinations())
+  def test_dont_cast_composite_unless_necessary(self):
+    if not tf.executing_eagerly():
+      return  # Creating Keras inputs from a type_spec only supported in eager.
+
+    # TODO(edloper): Change this to tf.experimental.ExtensionTyep once
+    # it's been released.
+    class MyType(extension_type.ExtensionType):
+      # TODO(edloper) Remove _shape and _dtype once Keras has been switched
+      # to use .shape and .dtype instead.
+      value: tf.Tensor
+      _shape = property(lambda self: self.value.shape)
+      shape = property(lambda self: self.value.shape)
+      _dtype = property(lambda self: self.value.dtype)
+      dtype = property(lambda self: self.value.dtype)
+
+      class Spec:
+        _shape = property(lambda self: self.value.shape)
+        shape = property(lambda self: self.value.shape)
+        _dtype = property(lambda self: self.value.dtype)
+        dtype = property(lambda self: self.value.dtype)
+
+    my_spec = MyType.Spec(tf.TensorSpec([5], tf.float32))
+    input1 = input_layer_lib.Input(type_spec=my_spec)
+    model = training_lib.Model([input1], input1)
+    model.compile(run_eagerly=testing_utils.should_run_eagerly())
+    model(MyType([1., 2., 3., 4., 5.]))  # Does not require cast.
+    with self.assertRaises((ValueError, TypeError)):
+      model(MyType([1, 2, 3, 4, 5]))
+
+  @combinations.generate(combinations.keras_mode_combinations())
   def test_composite_call_kwarg_derived_from_keras_layer(self):
 
     # Create a test layer that accepts composite tensor inputs.
@@ -1441,6 +1475,26 @@ class NetworkConstructionTest(keras_parameterized.TestCase):
     x = tf.ones((10, 10))
     y = fn(x)
     self.assertEqual(y.shape.as_list(), [10, 1])
+
+  def test_save_spec(self):
+    """Tests that functional model generates the correct save spec."""
+
+    class MultiInputModel(training_lib.Model):
+
+      def call(self, x, y):
+        return x
+
+    inp = input_layer_lib.Input(shape=(1,))
+    inp2 = input_layer_lib.Input(shape=(1,), batch_size=5, dtype=tf.int32)
+    out = MultiInputModel()(inp, inp2)
+    m = training_lib.Model(inputs={'x': inp, 'y': inp2}, outputs=out)
+    input_spec = m.save_spec(dynamic_batch=False)[0][0]
+    self.assertIn('x', input_spec)
+    self.assertIn('y', input_spec)
+    self.assertAllEqual([None, 1], input_spec['x'].shape.as_list())
+    self.assertAllEqual(tf.float32, input_spec['x'].dtype)
+    self.assertAllEqual([5, 1], input_spec['y'].shape.as_list())
+    self.assertAllEqual(tf.int32, input_spec['y'].dtype)
 
 
 class DeferredModeTest(keras_parameterized.TestCase):

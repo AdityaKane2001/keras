@@ -22,6 +22,7 @@ from tensorflow.python.util.tf_export import keras_export
 
 _PARTITION_SHAPE = 'partition_shape'
 _PARTITION_OFFSET = 'partition_offset'
+_ALLOWED_INITIALIZER_KWARGS = [_PARTITION_SHAPE, _PARTITION_OFFSET]
 
 
 @keras_export('keras.initializers.Initializer')
@@ -253,11 +254,11 @@ class RandomUniform(Initializer):
       random values to generate (inclusive).
     maxval: A python scalar or a scalar tensor. Upper bound of the range of
       random values to generate (exclusive).
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
   """
 
   def __init__(self, minval=-0.05, maxval=0.05, seed=None):
@@ -319,11 +320,11 @@ class RandomNormal(Initializer):
       generate.
     stddev: a python scalar or a scalar tensor. Standard deviation of the random
       values to generate.
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
   """
 
   def __init__(self, mean=0.0, stddev=0.05, seed=None):
@@ -387,11 +388,11 @@ class TruncatedNormal(Initializer):
       to generate.
     stddev: a python scalar or a scalar tensor. Standard deviation of the
       random values to generate before truncation.
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
   """
 
   def __init__(self, mean=0.0, stddev=0.05, seed=None):
@@ -464,11 +465,11 @@ class VarianceScaling(Initializer):
     mode: One of "fan_in", "fan_out", "fan_avg".
     distribution: Random distribution to use. One of "truncated_normal",
       "untruncated_normal" and  "uniform".
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
   """
 
   def __init__(self,
@@ -573,11 +574,11 @@ class Orthogonal(Initializer):
 
   Args:
     gain: multiplicative factor to apply to the orthogonal matrix
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [Saxe et al., 2014](https://openreview.net/forum?id=_wzZwKpTDF_9C)
@@ -704,11 +705,11 @@ class GlorotUniform(VarianceScaling):
   >>> layer = tf.keras.layers.Dense(3, kernel_initializer=initializer)
 
   Args:
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [Glorot et al., 2010](http://proceedings.mlr.press/v9/glorot10a.html)
@@ -750,11 +751,11 @@ class GlorotNormal(VarianceScaling):
   >>> layer = tf.keras.layers.Dense(3, kernel_initializer=initializer)
 
   Args:
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [Glorot et al., 2010](http://proceedings.mlr.press/v9/glorot10a.html)
@@ -799,11 +800,11 @@ class LecunNormal(VarianceScaling):
   >>> layer = tf.keras.layers.Dense(3, kernel_initializer=initializer)
 
   Args:
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [Klambauer et al., 2017](https://arxiv.org/abs/1706.02515)
@@ -841,11 +842,11 @@ class LecunUniform(VarianceScaling):
   >>> layer = tf.keras.layers.Dense(3, kernel_initializer=initializer)
 
   Args:
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [Klambauer et al., 2017](https://arxiv.org/abs/1706.02515)
@@ -883,11 +884,11 @@ class HeNormal(VarianceScaling):
   >>> layer = tf.keras.layers.Dense(3, kernel_initializer=initializer)
 
   Args:
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [He et al., 2015](https://arxiv.org/abs/1502.01852)
@@ -925,11 +926,11 @@ class HeUniform(VarianceScaling):
   >>> layer = tf.keras.layers.Dense(3, kernel_initializer=initializer)
 
   Args:
-    seed: A Python integer. Used to create random seeds. See
-      `tf.compat.v1.set_random_seed` for behavior. Note that seeded
-      initializer will not produce same random values across multiple calls,
-      but multiple initializers will produce same sequence when constructed with
-      same seed value.
+    seed: A Python integer. Used to make the behavior of the initializer
+      deterministic. Note that a seeded
+      initializer will not produce the same random values across multiple calls,
+      but multiple initializers will produce the same sequence when constructed
+      with the same seed value.
 
   References:
     - [He et al., 2015](https://arxiv.org/abs/1502.01852)
@@ -997,11 +998,10 @@ def _compute_fans(shape):
 
 
 def _validate_kwargs(cls_name, kwargs, support_partition=True):
-  allowed_kwargs = [_PARTITION_SHAPE, _PARTITION_OFFSET]
   for kwarg in kwargs:
-    if kwarg not in allowed_kwargs:
+    if kwarg not in _ALLOWED_INITIALIZER_KWARGS:
       raise TypeError(f'Unknown keyword arguments: {kwarg}. Allowed keyword '
-                      f'arguments: {allowed_kwargs}.')
+                      f'arguments: {_ALLOWED_INITIALIZER_KWARGS}.')
     elif not support_partition:
       raise ValueError(f'{cls_name} initializer doesn\'t support '
                        'partition-related arguments.')

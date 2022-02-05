@@ -5,15 +5,9 @@ load("@org_keras//keras:keras.bzl", "tf_py_test")
 
 package(
     default_visibility = [
-        "//keras:__subpackages__",
+        "//keras:friends",
     ],
     licenses = ["notice"],
-)
-
-filegroup(
-    name = "all_py_srcs",
-    srcs = glob(["*.py"]),
-    visibility = ["//keras/google/private_tf_api_test:__pkg__"],
 )
 
 py_library(
@@ -56,7 +50,6 @@ py_library(
     ],
     srcs_version = "PY3",
     deps = [
-        "//:expect_keras_preprocessing_installed",
         "//:expect_pillow_installed",
         "//:expect_tensorflow_installed",
         "//keras/utils:data_utils",
@@ -84,7 +77,6 @@ py_library(
     ],
     srcs_version = "PY3",
     deps = [
-        "//:expect_keras_preprocessing_installed",
         "//:expect_pillow_installed",
         "//:expect_tensorflow_installed",
     ],
@@ -164,5 +156,6 @@ tf_py_test(
         ":timeseries",
         "//:expect_numpy_installed",
         "//:expect_tensorflow_installed",
+        "//keras:testing_utils",
     ],
 )

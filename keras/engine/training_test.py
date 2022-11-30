@@ -37,8 +37,8 @@ from keras.engine import training_utils_v1
 from keras.layers.preprocessing import string_lookup
 from keras.mixed_precision import policy
 from keras.optimizers import optimizer_v2
-from keras.optimizers.optimizer_experimental import rmsprop
-from keras.optimizers.optimizer_experimental import sgd as sgd_experimental
+from keras.optimizers import rmsprop
+from keras.optimizers import sgd as sgd_experimental
 from keras.testing_infra import test_combinations
 from keras.testing_infra import test_utils
 from keras.utils import data_utils
@@ -264,6 +264,56 @@ class TrainingTest(test_combinations.TestCase):
         model.fit(x, y, epochs=2)
         model.evaluate(x, y)
         model.predict(x)
+
+    @test_combinations.run_all_keras_modes(always_skip_v1=True)
+    def test_jit_compile_true_for_evaluate_predict_but_false_for_compile(self):
+        # Test with jit_compile = True for model.compile(), model.evaluate(),
+        # model.predict()
+        model = sequential.Sequential([layers_module.Dense(1)])
+        self.assertIsNone(model._jit_compile)
+        self.assertIsNone(model.jit_compile)
+        model.compile("sgd", loss="mse")
+        model.jit_compile = True
+        self.assertTrue(model._jit_compile)
+        self.assertTrue(model.jit_compile)
+        x, y = np.ones((10, 1)), np.ones((10, 1))
+        model.fit(x, y, epochs=2)
+        model.evaluate(x, y)
+        model.predict(x)
+        self.assertTrue(model._jit_compile)
+        self.assertTrue(model.jit_compile)
+        model.compile("sgd", loss="mse", jit_compile=False)
+        self.assertFalse(model._jit_compile)
+        self.assertFalse(model.jit_compile)
+        model.compile("sgd", loss="mse", jit_compile=True)
+        self.assertTrue(model._jit_compile)
+        self.assertTrue(model.jit_compile)
+
+    @test_combinations.run_all_keras_modes(always_skip_v1=True)
+    def test_predict_xla_compile_with_jit_compile_setter_false_then_true(self):
+        vocab_data = ["earth", "wind", "and", "fire"]
+        input_array = np.array(
+            [
+                ["earth", "wind", "and", "fire"],
+                ["fire", "and", "earth", "michigan"],
+            ]
+        )
+        strategy = tf.distribute.MirroredStrategy()
+        with strategy.scope():
+            input_data = keras.Input(shape=(None,), dtype=tf.string)
+            # Added a string op unsupported by XLA compiler to make sure that an
+            # error is thrown, This ensures that the graph is indeed being
+            # compiled using XLA
+            layer = string_lookup.StringLookup(vocabulary=vocab_data)
+            int_data = layer(input_data)
+            model = keras.Model(inputs=input_data, outputs=int_data)
+            # Compiled without jit_compile
+            model.predict(input_array)
+            model.jit_compile = True
+            with self.assertRaisesRegex(
+                tf.errors.InvalidArgumentError, "Graph execution error"
+            ):
+                model.predict(input_array)
 
     @test_combinations.run_all_keras_modes(always_skip_v1=True)
     def test_fit_without_loss_at_compile(self):
@@ -941,6 +991,77 @@ class TrainingTest(test_combinations.TestCase):
 
         model = MyModel()
         self.assertIn('{"a": {}}', model.to_json())
+
+    @test_combinations.run_all_keras_modes(always_skip_v1=True)
+    def test_get_config_default(self):
+        class MyModel(training_module.Model):
+            def __init__(self, units):
+                super().__init__()
+                self.units = units
+
+            def call(self, inputs):
+                return inputs
+
+        # Test default config with named args
+        model = MyModel(units=10)
+        config = model.get_config()
+        self.assertLen(config, 1)
+        self.assertEqual(config["units"], 10)
+        model = model.from_config(config)
+        self.assertDictEqual(model.get_config(), config)
+
+        # Test default config with positinal args
+        model = MyModel(10)
+        config = model.get_config()
+        self.assertLen(config, 1)
+        self.assertEqual(config["units"], 10)
+        model = model.from_config(config)
+        self.assertDictEqual(model.get_config(), config)
+
+        # Test non-serializable
+        model = MyModel(units=np.int32(10))
+        config = model.get_config()
+        self.assertNotIn("units", config)
+
+    @test_combinations.run_all_keras_modes(always_skip_v1=True)
+    def test_get_config_kwargs(self):
+        class MyModel(training_module.Model):
+            def __init__(self, units, **kwargs):
+                super().__init__()
+                self.units = units
+
+            def call(self, inputs):
+                return inputs
+
+        model = MyModel(10, extra=1)
+        config = model.get_config()
+        self.assertLen(config, 2)
+        self.assertEqual(config["units"], 10)
+        self.assertEqual(config["extra"], 1)
+        model = model.from_config(config)
+        self.assertDictEqual(model.get_config(), config)
+
+    @test_combinations.run_all_keras_modes(always_skip_v1=True)
+    def test_get_config_override(self):
+        class MyModel(training_module.Model):
+            def __init__(self, units):
+                super().__init__()
+                self.units = units
+
+            def call(self, inputs):
+                return inputs
+
+            def get_config(self):
+                config = {"units": int(self.units)}
+                config.update(super().get_config())
+                return config
+
+        model = MyModel(units=np.int32(10))
+        config = model.get_config()
+        self.assertLen(config, 1)
+        self.assertEqual(config["units"], 10)
+        model = model.from_config(config)
+        self.assertDictEqual(model.get_config(), config)
 
     def test_training_on_sparse_data_with_dense_placeholders_v1(self):
         with tf.Graph().as_default():
@@ -2172,9 +2293,13 @@ class TrainingTest(test_combinations.TestCase):
         )
 
     @test_combinations.run_all_keras_modes(always_skip_v1=True)
-    def test_ema_overwrite(self):
+    @parameterized.named_parameters(
+        ("mixed_float16", "mixed_float16"), ("float32", "float32")
+    )
+    def test_ema_overwrite(self, test_policy):
         if not tf.__internal__.tf2.enabled():
             self.skipTest("EMA optimizer is only available in TF2.")
+        policy.set_global_policy(test_policy)
         model = sequential.Sequential()
         model.add(input_layer.Input(shape=(4,)))
         model.add(layers_module.Dense(1, activation="relu"))
@@ -2188,6 +2313,7 @@ class TrainingTest(test_combinations.TestCase):
         history = model.fit(dataset, epochs=2, steps_per_epoch=10)
         self.assertLen(history.history["loss"], 2)
         self.assertAllClose(initial_value, model.trainable_variables[0])
+        policy.set_global_policy("float32")
 
     @test_combinations.run_all_keras_modes(always_skip_v1=True)
     def test_get_verbosity(self):

@@ -151,11 +151,10 @@ class MultiHeadAttention(Layer):
     Finally, the result tensor with the last dimension as value_dim can take an
     linear projection and return.
 
-    When using MultiHeadAttention inside a custom Layer, the custom Layer must
-    implement `build()` and call MultiHeadAttention's `_build_from_signature()`.
+    When using `MultiHeadAttention` inside a custom layer, the custom layer must
+    implement its own `build()` method and call `MultiHeadAttention`'s
+    `_build_from_signature()` there.
     This enables weights to be restored correctly when the model is loaded.
-    TODO(b/172609172): link to documentation about calling custom build
-    functions when used in a custom Layer.
 
     Examples:
 
@@ -550,24 +549,16 @@ class MultiHeadAttention(Layer):
         training=None,
         use_causal_mask=False,
     ):
-        attention_mask = self._compute_attention_mask(
-            query,
-            value,
-            key=key,
-            attention_mask=attention_mask,
-            use_causal_mask=use_causal_mask,
-        )
-
         if not self._built_from_signature:
             self._build_from_signature(query=query, value=value, key=key)
         if key is None:
             key = value
 
+        # Convert RaggedTensor to Tensor.
         query_is_ragged = isinstance(query, tf.RaggedTensor)
         if query_is_ragged:
             query_lengths = query.nested_row_lengths()
             query = query.to_tensor()
-
         key_is_ragged = isinstance(key, tf.RaggedTensor)
         value_is_ragged = isinstance(value, tf.RaggedTensor)
         if key_is_ragged and value_is_ragged:
@@ -581,6 +572,14 @@ class MultiHeadAttention(Layer):
             key = key.to_tensor(shape=tf.shape(value))
         elif value_is_ragged:
             value = value.to_tensor(shape=tf.shape(key))
+
+        attention_mask = self._compute_attention_mask(
+            query,
+            value,
+            key=key,
+            attention_mask=attention_mask,
+            use_causal_mask=use_causal_mask,
+        )
 
         #   N = `num_attention_heads`
         #   H = `size_per_head`
@@ -697,3 +696,31 @@ class MultiHeadAttention(Layer):
         return tf.linalg.band_part(  # creates a lower triangular matrix
             tf.ones((1, q_seq_length, v_seq_length), tf.bool), -1, 0
         )
+
+    def compute_output_shape(self, query_shape, value_shape, key_shape=None):
+
+        if key_shape is None:
+            key_shape = value_shape
+
+        query_shape = tf.TensorShape(query_shape)
+        value_shape = tf.TensorShape(value_shape)
+        key_shape = tf.TensorShape(key_shape)
+
+        if query_shape[-1] != value_shape[-1]:
+            raise ValueError(
+                "The last dimension of `query_shape` and `value_shape` "
+                f"must be equal, but are {query_shape[-1]}, {value_shape[-1]}. "
+                "Received: query_shape={query_shape}, value_shape={value_shape}"
+            )
+
+        if value_shape[1:-1] != key_shape[1:-1]:
+            raise ValueError(
+                "All dimensions of `value` and `key`, except the last one, "
+                f"must be equal. Received {value_shape} and "
+                f"{key_shape}"
+            )
+
+        if self._output_shape:
+            return query_shape[:-1].concatenate(self._output_shape)
+
+        return query_shape

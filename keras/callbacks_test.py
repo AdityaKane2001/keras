@@ -38,6 +38,7 @@ from keras.callbacks import Callback
 from keras.engine import sequential
 from keras.layers import Activation
 from keras.layers import Dense
+from keras.optimizers import sgd_experimental
 from keras.optimizers.optimizer_v2 import gradient_descent
 from keras.optimizers.schedules import learning_rate_schedule
 from keras.testing_infra import test_combinations
@@ -428,7 +429,7 @@ class KerasCallbacksTest(test_combinations.TestCase):
                     raise RuntimeError("Interruption")
 
         model = keras.Sequential([keras.layers.Dense(10)])
-        optimizer = gradient_descent.SGD()
+        optimizer = sgd_experimental.SGD()
         model.compile(optimizer, loss="mse")
 
         x = tf.random.uniform((24, 10))
@@ -505,7 +506,7 @@ class KerasCallbacksTest(test_combinations.TestCase):
                     )
 
         model = keras.Sequential([keras.layers.Dense(10)])
-        optimizer = gradient_descent.SGD()
+        optimizer = sgd_experimental.SGD()
         model.compile(optimizer, loss="mse")
 
         x = tf.random.uniform((24, 10))
@@ -516,17 +517,16 @@ class KerasCallbacksTest(test_combinations.TestCase):
             backup_dir=self.get_temp_dir(), save_freq=save_freq_arg
         )
         # epoch where the restore should resume from
-        init_epoch = (
-            epoch_int
-            if save_freq_arg == "epoch"
-            else int(((steps_int // 7) * 7) // 5)
-        )
-        # step from where the restore should resume from
-        init_step = (
-            0
-            if save_freq_arg == "epoch"
-            else int((((steps_int // 7) * 7) % 5) - 1)
-        )
+        if save_freq_arg == "epoch":
+            init_epoch = epoch_int
+            init_step = 0
+        elif save_freq_arg:
+            init_epoch = int(((steps_int // 7) * 7) // 5)
+            init_step = int((((steps_int // 7) * 7) % 5) - 1)
+        else:
+            init_epoch = 0
+            init_step = 0
+
         # callback to verify accurate training state restore
         verify_restore_callback = VerifyRestore(
             initial_epoch=init_epoch, initial_step=init_step
@@ -649,6 +649,44 @@ class KerasCallbacksTest(test_combinations.TestCase):
         )
         self.assertNotIn(warning_msg, "\n".join(warning_messages))
         warning_msg = "***Handling interruption at Nth step***"
+        self.assertIn(warning_msg, "\n".join(warning_messages))
+
+    def test_backup_and_restore_steps_false_save_freq(self):
+        """Ensure the public endpoint of `BackupAndRestore` is working."""
+        warning_messages = []
+
+        def warning(msg):
+            warning_messages.append(msg)
+
+        with tf.compat.v1.test.mock.patch.object(logging, "warning", warning):
+            # interrupt at steps before 1 epoch
+            self._test_backup_and_restore_callback_at_steps(
+                BackupAndRestore, epoch_int=20, steps_int=3, mode=False
+            )
+        warning_msg = (
+            "`tf.keras.callbacks.experimental.BackupAndRestore` "
+            "endpoint is deprecated"
+        )
+        self.assertNotIn(warning_msg, "\n".join(warning_messages))
+        warning_msg = "***Handling interruption at Nth step***"
+        self.assertIn(warning_msg, "\n".join(warning_messages))
+
+        # interrupt at steps after 1 epoch
+        warning_messages = []
+        with tf.compat.v1.test.mock.patch.object(logging, "warning", warning):
+            self._test_backup_and_restore_callback_at_steps(
+                BackupAndRestore, epoch_int=20, steps_int=8, mode="batch"
+            )
+        warning_msg = "***Handling interruption at Nth step***"
+        self.assertIn(warning_msg, "\n".join(warning_messages))
+
+        # interrupt at epoch before steps
+        warning_messages = []
+        with tf.compat.v1.test.mock.patch.object(logging, "warning", warning):
+            self._test_backup_and_restore_callback_at_steps(
+                BackupAndRestore, epoch_int=1, steps_int=12, mode="epoch"
+            )
+        warning_msg = "***Handling interruption at epoch***"
         self.assertIn(warning_msg, "\n".join(warning_messages))
 
     def test_backup_and_restore_steps_clean_up(self):
@@ -1868,6 +1906,53 @@ class KerasCallbacksTest(test_combinations.TestCase):
         self.assertEqual(epochs_trained, 5)
         self.assertEqual(early_stop.model.get_weights(), 2)
 
+    def test_EarlyStopping_with_start_from_epoch(self):
+        with self.cached_session():
+            np.random.seed(1337)
+            (data, labels), _ = test_utils.get_test_data(
+                train_samples=TRAIN_SAMPLES,
+                test_samples=TEST_SAMPLES,
+                input_shape=(INPUT_DIM,),
+                num_classes=NUM_CLASSES,
+            )
+            labels = np_utils.to_categorical(labels)
+            model = test_utils.get_small_sequential_mlp(
+                num_hidden=NUM_HIDDEN,
+                num_classes=NUM_CLASSES,
+                input_dim=INPUT_DIM,
+            )
+            model.compile(
+                optimizer="sgd", loss="binary_crossentropy", metrics=["acc"]
+            )
+            start_from_epoch = 2
+            patience = 3
+            stopper = keras.callbacks.EarlyStopping(
+                monitor="acc",
+                patience=patience,
+                start_from_epoch=start_from_epoch,
+            )
+            history = model.fit(
+                data, labels, callbacks=[stopper], verbose=0, epochs=20
+            )
+            # Test 'patience' argument functions correctly when used
+            # in conjunction with 'start_from_epoch'.
+            self.assertGreaterEqual(
+                len(history.epoch), patience + start_from_epoch
+            )
+
+            start_from_epoch = 2
+            patience = 0
+            stopper = keras.callbacks.EarlyStopping(
+                monitor="acc",
+                patience=patience,
+                start_from_epoch=start_from_epoch,
+            )
+            history = model.fit(
+                data, labels, callbacks=[stopper], verbose=0, epochs=20
+            )
+            # Test for boundary condition when 'patience' = 0.
+            self.assertGreaterEqual(len(history.epoch), start_from_epoch)
+
     def test_RemoteMonitor(self):
         if requests is None:
             self.skipTest("`requests` required to run this test")
@@ -2953,6 +3038,7 @@ class TestTensorBoardV2(test_combinations.TestCase):
         self.assertEqual(
             summary_file.scalars,
             {
+                _ObservedSummary(logdir=self.train_dir, tag="batch_loss"),
                 _ObservedSummary(logdir=self.train_dir, tag="epoch_loss"),
                 _ObservedSummary(logdir=self.validation_dir, tag="epoch_loss"),
                 _ObservedSummary(
@@ -3015,6 +3101,7 @@ class TestTensorBoardV2(test_combinations.TestCase):
         self.assertEqual(
             summary_file.scalars,
             {
+                _ObservedSummary(logdir=self.train_dir, tag="batch_loss"),
                 _ObservedSummary(logdir=self.train_dir, tag="epoch_loss"),
                 _ObservedSummary(
                     logdir=self.train_dir, tag="epoch_learning_rate"
@@ -3200,6 +3287,7 @@ class TestTensorBoardV2(test_combinations.TestCase):
         self.assertEqual(
             summary_file.scalars,
             {
+                _ObservedSummary(logdir=self.train_dir, tag="batch_loss"),
                 _ObservedSummary(logdir=self.train_dir, tag="epoch_loss"),
                 _ObservedSummary(logdir=self.validation_dir, tag="epoch_loss"),
                 _ObservedSummary(
@@ -3302,14 +3390,14 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
         model.compile(opt, "mse", run_eagerly=test_utils.should_run_eagerly())
         return model
 
-    def _count_trace_file(self, logdir):
+    def _count_xplane_file(self, logdir):
         profile_dir = os.path.join(logdir, "plugins", "profile")
         count = 0
         for dirpath, dirnames, filenames in os.walk(profile_dir):
             del dirpath  # unused
             del dirnames  # unused
             for filename in filenames:
-                if filename.endswith(".trace.json.gz"):
+                if filename.endswith(".xplane.pb"):
                     count += 1
         return count
 
@@ -3398,10 +3486,10 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
                 _ObservedSummary(logdir=self.train_dir, tag="batch_1"),
             },
         )
-        self.assertEqual(1, self._count_trace_file(logdir=self.logdir))
+        self.assertEqual(1, self._count_xplane_file(logdir=self.logdir))
 
     def test_TensorBoard_autoTrace_outerProfiler(self):
-        """Runs a profiler session that interferes with the one from the callback.
+        """Runs a profiler session that interferes with the callback's one.
 
         The callback will not generate a profile but execution will proceed
         without crashing due to unhandled exceptions.
@@ -3430,7 +3518,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
                 _ObservedSummary(logdir=self.train_dir, tag="batch_1"),
             },
         )
-        self.assertEqual(0, self._count_trace_file(logdir=self.train_dir))
+        self.assertEqual(0, self._count_xplane_file(logdir=self.train_dir))
 
     def test_TensorBoard_autoTrace_tagNameWithBatchNum(self):
         model = self._get_seq_model()
@@ -3455,7 +3543,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
                 _ObservedSummary(logdir=self.train_dir, tag="batch_2"),
             },
         )
-        self.assertEqual(1, self._count_trace_file(logdir=self.logdir))
+        self.assertEqual(1, self._count_xplane_file(logdir=self.logdir))
 
     def test_TensorBoard_autoTrace_profileBatchRangeSingle(self):
         model = self._get_seq_model()
@@ -3484,7 +3572,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
                 _ObservedSummary(logdir=self.train_dir, tag="batch_2"),
             },
         )
-        self.assertEqual(1, self._count_trace_file(logdir=self.logdir))
+        self.assertEqual(1, self._count_xplane_file(logdir=self.logdir))
 
     def test_TensorBoard_autoTrace_profileBatchRangeTwice(self):
         model = self._get_seq_model()
@@ -3515,7 +3603,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
             validation_data=(x, y),
             callbacks=[tb_cbk],
         )
-        self.assertEqual(2, self._count_trace_file(logdir=self.logdir))
+        self.assertEqual(2, self._count_xplane_file(logdir=self.logdir))
 
     # Test case that replicates a GitHub issue.
     # https://github.com/tensorflow/tensorflow/issues/37543
@@ -3535,7 +3623,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
             callbacks=[keras.callbacks.TensorBoard(logdir, profile_batch=1)],
         )
         # Verifies trace exists in the first logdir.
-        self.assertEqual(1, self._count_trace_file(logdir=logdir))
+        self.assertEqual(1, self._count_xplane_file(logdir=logdir))
         logdir = os.path.join(self.get_temp_dir(), "tb2")
         model.fit(
             np.zeros((64, 1)),
@@ -3544,7 +3632,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
             callbacks=[keras.callbacks.TensorBoard(logdir, profile_batch=2)],
         )
         # Verifies trace exists in the second logdir.
-        self.assertEqual(1, self._count_trace_file(logdir=logdir))
+        self.assertEqual(1, self._count_xplane_file(logdir=logdir))
 
     def test_TensorBoard_autoTrace_profileBatchRange(self):
         model = self._get_seq_model()
@@ -3573,7 +3661,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
                 _ObservedSummary(logdir=self.train_dir, tag="batch_3"),
             },
         )
-        self.assertEqual(1, self._count_trace_file(logdir=self.logdir))
+        self.assertEqual(1, self._count_xplane_file(logdir=self.logdir))
 
     def test_TensorBoard_autoTrace_profileInvalidBatchRange(self):
         with self.assertRaises(ValueError):
@@ -3630,7 +3718,7 @@ class TestTensorBoardV2NonParameterizedTest(test_combinations.TestCase):
 
         # Enabled trace only on the 10000th batch, thus it should be empty.
         self.assertEmpty(summary_file.tensors)
-        self.assertEqual(0, self._count_trace_file(logdir=self.train_dir))
+        self.assertEqual(0, self._count_xplane_file(logdir=self.train_dir))
 
 
 class MostRecentlyModifiedFileMatchingPatternTest(tf.test.TestCase):

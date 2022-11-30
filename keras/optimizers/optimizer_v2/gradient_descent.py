@@ -23,7 +23,10 @@ from keras.optimizers.optimizer_v2 import optimizer_v2
 from tensorflow.python.util.tf_export import keras_export
 
 
-@keras_export("keras.optimizers.SGD")
+@keras_export(
+    "keras.optimizers.legacy.SGD",
+    v1=["keras.optimizers.SGD", "keras.optimizers.legacy.SGD"],
+)
 class SGD(optimizer_v2.OptimizerV2):
     r"""Gradient descent (with momentum) optimizer.
 
@@ -70,7 +73,7 @@ class SGD(optimizer_v2.OptimizerV2):
 
     Usage:
 
-    >>> opt = tf.keras.optimizers.SGD(learning_rate=0.1)
+    >>> opt = tf.keras.optimizers.legacy.SGD(learning_rate=0.1)
     >>> var = tf.Variable(1.0)
     >>> loss = lambda: (var ** 2)/2.0         # d(loss)/d(var1) = var1
     >>> step_count = opt.minimize(loss, [var]).numpy()
@@ -78,7 +81,7 @@ class SGD(optimizer_v2.OptimizerV2):
     >>> var.numpy()
     0.9
 
-    >>> opt = tf.keras.optimizers.SGD(learning_rate=0.1, momentum=0.9)
+    >>> opt = tf.keras.optimizers.legacy.SGD(learning_rate=0.1, momentum=0.9)
     >>> var = tf.Variable(1.0)
     >>> val0 = var.value()
     >>> loss = lambda: (var ** 2)/2.0         # d(loss)/d(var1) = var1
@@ -95,7 +98,7 @@ class SGD(optimizer_v2.OptimizerV2):
 
     Reference:
         - For `nesterov=True`, See [Sutskever et al., 2013](
-          http://jmlr.org/proceedings/papers/v28/sutskever13.pdf).
+          https://github.com/mlresearch/v28/blob/gh-pages/sutskever13.pdf).
     """
 
     _HAS_AGGREGATE_GRAD = True

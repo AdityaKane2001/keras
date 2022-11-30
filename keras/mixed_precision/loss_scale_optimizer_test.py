@@ -24,11 +24,9 @@ from absl.testing import parameterized
 from keras import optimizers
 from keras.mixed_precision import loss_scale_optimizer
 from keras.mixed_precision import test_util as mp_test_util
-from keras.optimizers.optimizer_experimental import adam as adam_experimental
-from keras.optimizers.optimizer_experimental import (
-    optimizer as optimizer_experimental,
-)
-from keras.optimizers.optimizer_experimental import sgd as sgd_experimental
+from keras.optimizers import adam as adam_experimental
+from keras.optimizers import optimizer as optimizer_experimental
+from keras.optimizers import sgd as sgd_experimental
 from keras.optimizers.optimizer_v2 import adam
 from keras.optimizers.optimizer_v2 import gradient_descent
 from keras.optimizers.optimizer_v2 import optimizer_v2
@@ -37,9 +35,6 @@ from keras.testing_infra import test_combinations
 # isort: off
 from tensorflow.python.framework import (
     test_util as tf_test_utils,
-)
-from tensorflow.python.keras.optimizer_v2 import (
-    gradient_descent as legacy_sgd,
 )
 from tensorflow.python.platform import tf_logging
 
@@ -1284,6 +1279,10 @@ class LossScaleOptimizerTest(tf.test.TestCase, parameterized.TestCase):
                 "before",
                 mock_warn.call_args_list[0][0][0],
             )
+
+    @test_combinations.generate(opt_combinations_only())
+    def testScalingNoWarning(self, opt_cls):
+        var = tf.Variable(1.0)
         lso = create_lso(create_sgd(opt_cls))
         with mock.patch.object(tf_logging, "warning") as mock_warn:
             lso.get_scaled_loss(tf.constant(1.0))
@@ -1319,13 +1318,6 @@ class LossScaleOptimizerTest(tf.test.TestCase, parameterized.TestCase):
             "`tf.keras.optimizers.experimental.Optimizer`, but got: 1",
         ):
             loss_scale_optimizer.BaseLossScaleOptimizer(1)
-
-    def testErrorWhenWrappingLegacyKerasOptimizers(self):
-        sgd = legacy_sgd.SGD()
-        with self.assertRaisesRegex(
-            TypeError, "not an instance of `tensorflow.python.keras.optimizers`"
-        ):
-            loss_scale_optimizer.BaseLossScaleOptimizer(sgd)
 
     def testErrorWhenV3LsoWrapsV2Optimizer(self):
         sgd = gradient_descent.SGD()

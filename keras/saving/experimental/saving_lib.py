@@ -12,276 +12,661 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Keras python-based idempotent saving functions (experimental)."""
-import importlib
+"""Python-based idempotent model-saving functionality."""
+
+import datetime
+import io
 import json
 import os
-import types
+import re
+import tempfile
+import threading
+import warnings
+import zipfile
 
+import numpy as np
 import tensorflow.compat.v2 as tf
 
-from keras.saving.saved_model import json_utils
+import keras
+from keras import losses
+from keras.engine import base_layer
+from keras.optimizers import optimizer
+from keras.saving.experimental.serialization_lib import ObjectSharingScope
+from keras.saving.experimental.serialization_lib import deserialize_keras_object
+from keras.saving.experimental.serialization_lib import serialize_keras_object
 from keras.utils import generic_utils
+from keras.utils import io_utils
+
+try:
+    import h5py
+except ImportError:
+    h5py = None
 
 # isort: off
-from tensorflow.python.util import tf_export
 
-_CONFIG_FILE = "config.keras"
+_CONFIG_FILENAME = "config.json"
+_METADATA_FILENAME = "metadata.json"
+_VARS_FNAME = "model.weights"  # Will become e.g. "model.weights.h5"
+_ASSETS_DIRNAME = "assets"
 
 # A temporary flag to enable the new idempotent saving framework.
-_ENABLED = False
+_SAVING_V3_ENABLED = threading.local()
+_SAVING_V3_ENABLED.value = False
 
-
-def load(dirpath):
-    """Load a saved python model."""
-    file_path = os.path.join(dirpath, _CONFIG_FILE)
-    with tf.io.gfile.GFile(file_path, "r") as f:
-        config_json = f.read()
-    config_dict = json_utils.decode(config_json)
-    return deserialize_keras_object(config_dict)
-
-
-def save(model, dirpath):
-    """Save a saved python model."""
-    if not tf.io.gfile.exists(dirpath):
-        tf.io.gfile.mkdir(dirpath)
-    file_path = os.path.join(dirpath, _CONFIG_FILE)
-
-    # TODO(rchao): Save the model's metadata (e.g. Keras version) in a separate
-    # file in the archive.
-    # TODO(rchao): Save the model's state (e.g. layer weights/vocab) in a
-    # separate set of files in the archive.
-    # TODO(rchao): Write the config into a file in an archive. In this prototype
-    # we're temporarily settled on a standalone json file.
-    serialized_model_dict = serialize_keras_object(model)
-    config_json = json.dumps(serialized_model_dict, cls=json_utils.Encoder)
-    with tf.io.gfile.GFile(file_path, "w") as f:
-        f.write(config_json)
-
-
-# TODO(rchao): Replace the current Keras' `deserialize_keras_object` with this
-# (as well as the reciprocal function).
-def deserialize_keras_object(config_dict):
-    """Retrieve the object by deserializing the config dict.
-
-    The config dict is a python dictionary that consists of a set of key-value
-    pairs, and represents a Keras object, such as an `Optimizer`, `Layer`,
-    `Metrics`, etc. The saving and loading library uses the following keys to
-    record information of a Keras object:
-
-    - `class_name`: String. For classes that have an exported Keras namespace,
-      this is the full path that starts with "keras", such as
-      "keras.optimizers.Adam". For classes that do not have an exported Keras
-      namespace, this is the name of the class, as exactly defined in the source
-      code, such as "LossesContainer".
-    - `config`: Dict. Library-defined or user-defined key-value pairs that store
-      the configuration of the object, as obtained by `object.get_config()`.
-    - `module`: String. The path of the python module, such as
-      "keras.engine.compile_utils". Built-in Keras classes
-      expect to have prefix `keras`. For classes that have an exported Keras
-      namespace, this is `None` since the class can be fully identified by the
-      full Keras path.
-    - `registered_name`: String. The key the class is registered under via
-      `keras.utils.register_keras_serializable(package, name)` API. The key has
-      the format of '{package}>{name}', where `package` and `name` are the
-      arguments passed to `register_keras_serializable()`. If `name` is not
-      provided, it defaults to the class name. If `registered_name` successfully
-      resolves to a class (that was registered), `class_name` and `config`
-      values in the dict will not be used. `registered_name` is only used for
-      non-built-in classes.
-
-    For example, the following dictionary represents the built-in Adam optimizer
-    with the relevant config. Note that for built-in (exported symbols that have
-    an exported Keras namespace) classes, the library tracks the class by the
-    the import location of the built-in object in the Keras namespace, e.g.
-    `"keras.optimizers.Adam"`, and this information is stored in `class_name`:
-
-    ```
-    dict_structure = {
-        "class_name": "keras.optimizers.Adam",
-        "config": {
-            "amsgrad": false,
-            "beta_1": 0.8999999761581421,
-            "beta_2": 0.9990000128746033,
-            "decay": 0.0,
-            "epsilon": 1e-07,
-            "learning_rate": 0.0010000000474974513,
-            "name": "Adam"
-        },
-        "module": null,
-        "registered_name": "Adam"
+ATTR_SKIPLIST = frozenset(
+    {
+        "_callable_losses",
+        "_captured_weight_regularizer",
+        "_checkpoint_dependencies",
+        "_deferred_dependencies",
+        "_eager_losses",
+        "_inbound_nodes",
+        "_inbound_nodes_value",
+        "_output_layers",
+        "_input_layers",
+        "_keras_api_names",
+        "_keras_api_names_v1",
+        "_name_based_restores",
+        "_non_trainable_weights",
+        "_outbound_nodes",
+        "_outbound_nodes_value",
+        "_saved_model_arg_spec",
+        "_self_name_based_restores",
+        "_self_saveable_object_factories",
+        "_self_tracked_trackables",
+        "_self_unconditional_checkpoint_dependencies",
+        "_self_unconditional_deferred_dependencies",
+        "_self_unconditional_dependency_names",
+        "_tf_api_names",
+        "_tf_api_names_v1",
+        "_trainable_weights",
+        "_non_trainable_weights",
+        "_unconditional_checkpoint_dependencies",
+        "_unconditional_dependency_names",
+        "_updates",
+        "_layer_call_argspecs",
+        "inbound_nodes",
+        "submodules",
+        "weights",
+        "non_trainable_weights",
+        "trainable_weights",
+        "variables",
+        "non_trainable_variables",
+        "trainable_variables",
+        "updates",  # Would raise a warning if visited.
+        "state_updates",  # Would raise a warning if visited.
     }
-    # Returns an `Adam` instance identical to the original one.
-    deserialize_keras_object(dict_structure)
-    ```
+)
 
-    If the class does not have an exported Keras namespace, the library tracks
-    it by its `module` and `class_name`. For example:
 
-    ```
-    dict_structure = {
-      "class_name": "LossesContainer",
-      "config": {
-          "losses": [...],
-          "total_loss_mean": {...},
-      },
-      "module": "keras.engine.compile_utils",
-      "registered_name": "LossesContainer"
-    }
+def save_model(model, filepath, weights_format="h5"):
+    """Save a zip-archive representing a Keras model to the given filepath.
 
-    # Returns a `LossesContainer` instance identical to the original one.
-    deserialize_keras_object(dict_structure)
-    ```
+    The zip-based archive contains the following structure:
 
-    And the following dictionary represents a user-customized `MeanSquaredError`
-    loss:
+    - JSON-based configuration file (config.json): Records of model, layer, and
+        other trackables' configuration.
+    - NPZ-based trackable state files, found in respective directories, such as
+        model/states.npz, model/dense_layer/states.npz, etc.
+    - Metadata file.
 
-    ```
-    @keras.utils.generic_utils.register_keras_serializable(package='my_package')
-    class ModifiedMeanSquaredError(keras.losses.MeanSquaredError):
-      ...
+    The states of Keras trackables (layers, optimizers, loss, and metrics) are
+    automatically saved as long as they can be discovered through the attributes
+    returned by `dir(Model)`. Typically, the state includes the variables
+    associated with the trackable, but some specially purposed layers may
+    contain more such as the vocabularies stored in the hashmaps. The trackables
+    define how their states are saved by exposing `save_state()` and
+    `load_state()` APIs.
 
-    dict_structure = {
-        "class_name": "ModifiedMeanSquaredError",
-        "config": {
-            "fn": "mean_squared_error",
-            "name": "mean_squared_error",
-            "reduction": "auto"
-        },
-        "registered_name": "my_package>ModifiedMeanSquaredError"
-    }
-    # Gives `ModifiedMeanSquaredError` object
-    deserialize_keras_object(dict_structure)
-    ```
-
-    Args:
-      config_dict: the python dict structure to deserialize the Keras object
-        from.
-
-    Returns:
-      The Keras object that is deserialized from `config_dict`.
-
+    For the case of layer states, the variables will be visited as long as
+    they are either 1) referenced via layer attributes, or 2) referenced via a
+    container (list, tuple, or dict), and the container is referenced via a
+    layer attribute.
     """
-    # TODO(rchao): Design a 'version' key for `config_dict` for defining
-    # versions for classes.
-    class_name = config_dict["class_name"]
-    config = config_dict["config"]
-    module = config_dict["module"]
-    registered_name = config_dict["registered_name"]
+    filepath = str(filepath)
+    if not filepath.endswith(".keras"):
+        raise ValueError(
+            "Invalid `filepath` argument: expected a `.keras` extension. "
+            f"Received: filepath={filepath}"
+        )
+    if weights_format == "h5" and h5py is None:
+        raise ImportError("h5py must be installed in order to save a model.")
 
-    # Strings and functions will have `builtins` as its module.
-    if module == "builtins":
-        if class_name == "str":
-            if not isinstance(config, str):
-                raise TypeError(
-                    "Config of string is supposed to be a string. "
-                    f"Received: {config}."
-                )
-            return config
+    if not model.built:
+        warnings.warn(
+            "You are saving a model that has not yet been built. "
+            "It might not contain any weights yet. "
+            "Consider building the model first by calling it "
+            "on some data.",
+            stacklevel=2,
+        )
+    saving_v3_enabled_value = getattr(_SAVING_V3_ENABLED, "value", False)
+    _SAVING_V3_ENABLED.value = True
 
-        elif class_name == "function":
-            custom_function = generic_utils.get_custom_objects_by_name(
-                registered_name
-            )
-            if custom_function is not None:
-                # If there is a custom function registered (via
-                # `register_keras_serializable` API), that takes precedence.
-                return custom_function
-
-            # Otherwise, attempt to import the tracked module, and find the
-            # function.
-            function_module = config.get("module", None)
-            try:
-                function_module = importlib.import_module(function_module)
-            except ImportError as e:
-                raise ImportError(
-                    f"The function module {function_module} is not available. "
-                    f"The config dictionary provided is {config_dict}."
-                ) from e
-            return vars(function_module).get(config["function_name"])
-
-        raise TypeError(f"Unrecognized type: {class_name}")
-
-    custom_class = generic_utils.get_custom_objects_by_name(registered_name)
-    if custom_class is not None:
-        # For others (classes), see if there is a custom class registered (via
-        # `register_keras_serializable` API). If so, that takes precedence.
-        return custom_class.from_config(config)
-    else:
-        # Otherwise, attempt to retrieve the class object given the `module`,
-        # and `class_name`.
-        if module is None:
-            # In the case where `module` is not recorded, the `class_name`
-            # represents the full exported Keras namespace (used by
-            # `keras_export`) such as "keras.optimizers.Adam".
-            cls = tf_export.get_symbol_from_name(class_name)
-        else:
-            # In the case where `module` is available, the class does not have
-            # an Keras namespace (which is the case when the symbol is not
-            # exported via `keras_export`). Import the tracked module (that is
-            # used for the internal path), find the class, and use its config.
-            mod = importlib.import_module(module)
-            cls = vars(mod).get(class_name, None)
-        if not hasattr(cls, "from_config"):
-            raise TypeError(f"Unable to reconstruct an instance of {cls}.")
-        return cls.from_config(config)
-
-
-def serialize_keras_object(obj):
-    """Retrieve the config dict by serializing the Keras object.
-
-    `serialize_keras_object()` serializes a Keras object to a python dictionary
-    that represents the object, and is a reciprocal function of
-    `deserialize_keras_object()`. See `deserialize_keras_object()` for more
-    information about the config format.
-
-    Args:
-      obj: the Keras object to serialize.
-
-    Returns:
-      A python dict that represents the object. The python dict can be
-      deserialized via `deserialize_keras_object()`.
-    """
-
-    # Note that in the case of the `obj` being a function, the module used will
-    # be "builtins", and the `class_name` used will be "function"; in the case
-    # of the `obj` being a string, the module used will be "builtins", and the
-    # `class_name` used will be "str"
-    module = None
-
-    # This gets the `keras.*` exported name, such as "keras.optimizers.Adam".
-    class_name = tf_export.get_canonical_name_for_symbol(
-        obj.__class__, api_name="keras"
-    )
-    if class_name is None:
-        module = obj.__class__.__module__
-        class_name = obj.__class__.__name__
-    return {
-        "module": module,
-        "class_name": class_name,
-        "config": _get_object_config(obj),
-        "registered_name": _get_object_registered_name(obj),
-    }
-
-
-def _get_object_registered_name(obj):
-    if isinstance(obj, types.FunctionType):
-        return generic_utils.get_registered_name(obj)
-    else:
-        return generic_utils.get_registered_name(obj.__class__)
-
-
-def _get_object_config(obj):
-    """Return the object's config depending on string, function, or others."""
-    if isinstance(obj, str):
-        # Use the content of the string as the config for string.
-        return obj
-    elif isinstance(obj, types.FunctionType):
-        # Keep track of the function's module and name in a dict as the config.
-        return {
-            "module": obj.__module__,
-            "function_name": obj.__name__,
+    with ObjectSharingScope():
+        serialized_model_dict = serialize_keras_object(model)
+    config_json = json.dumps(serialized_model_dict)
+    metadata_json = json.dumps(
+        {
+            "keras_version": keras.__version__,
+            "date_saved": datetime.datetime.now().strftime("%Y-%m-%d@%H:%M:%S"),
         }
-    if not hasattr(obj, "get_config"):
-        raise TypeError(f"Unable to recognize the config of {obj}.")
-    return obj.get_config()
+    )
+    # TODO(rameshsampath): Need a better logic for local vs remote path
+    if re.match(r"^(/cns|/cfs|.*://).*$", filepath):
+        # Remote path. Zip to local drive and copy to remote
+        is_remote_path = True
+        zip_filepath = os.path.join(_get_temp_dir(), "tmp_model.keras")
+    else:
+        is_remote_path = False
+        zip_filepath = filepath
+    try:
+        with zipfile.ZipFile(zip_filepath, "w") as zf:
+
+            with zf.open(_METADATA_FILENAME, "w") as f:
+                f.write(metadata_json.encode())
+            with zf.open(_CONFIG_FILENAME, "w") as f:
+                f.write(config_json.encode())
+
+            if weights_format == "h5":
+                weights_store = H5IOStore(
+                    _VARS_FNAME + ".h5", archive=zf, mode="w"
+                )
+            elif weights_format == "npz":
+                weights_store = NpzIOStore(
+                    _VARS_FNAME + ".npz", archive=zf, mode="w"
+                )
+            else:
+                raise ValueError(
+                    "Unknown `weights_format` argument. "
+                    "Expected 'h5' or 'npz'. "
+                    f"Received: weights_format={weights_format}"
+                )
+
+            asset_store = DiskIOStore(_ASSETS_DIRNAME, archive=zf, mode="w")
+
+            _save_state(
+                model,
+                weights_store=weights_store,
+                assets_store=asset_store,
+                inner_path="",
+                visited_trackables=set(),
+            )
+            weights_store.close()
+            asset_store.close()
+
+        if is_remote_path:
+            # Using tf.io.gfile context manager doesn't close zip file when
+            # writing to GCS. Hence writing to local and copying to filepath.
+            tf.io.gfile.copy(zip_filepath, filepath, overwrite=True)
+            os.remove(zip_filepath)
+    except Exception as e:
+        raise e
+    finally:
+        _SAVING_V3_ENABLED.value = saving_v3_enabled_value
+
+
+def load_model(filepath, custom_objects=None, compile=True):
+    """Load a zip archive representing a Keras model."""
+
+    filepath = str(filepath)
+    if not filepath.endswith(".keras"):
+        raise ValueError(
+            "Invalid filename: expected a `.keras` extension. "
+            f"Received: filepath={filepath}"
+        )
+
+    saving_v3_enabled_value = getattr(_SAVING_V3_ENABLED, "value", False)
+    _SAVING_V3_ENABLED.value = True
+
+    try:
+        with tf.io.gfile.GFile(
+            filepath, mode="r+b"
+        ) as gfile_handle, zipfile.ZipFile(gfile_handle, "r") as zf:
+
+            with zf.open(_CONFIG_FILENAME, "r") as f:
+                config_json = f.read()
+
+            # Note: we should NOT use a custom JSON decoder. Anything that
+            # needs custom decoding must be handled in deserialize_keras_object.
+            config_dict = json.loads(config_json)
+            if not compile:
+                # Disable compilation
+                config_dict["compile_config"] = None
+            # Construct the model from the configuration file in the archive.
+            with ObjectSharingScope():
+                model = deserialize_keras_object(config_dict, custom_objects)
+
+            all_filenames = zf.namelist()
+            if _VARS_FNAME + ".h5" in all_filenames:
+                weights_store = H5IOStore(
+                    _VARS_FNAME + ".h5", archive=zf, mode="r"
+                )
+            elif _VARS_FNAME + ".npz" in all_filenames:
+                weights_store = NpzIOStore(
+                    _VARS_FNAME + ".npz", archive=zf, mode="r"
+                )
+            else:
+                raise ValueError(
+                    f"Expected a {_VARS_FNAME}.h5 or {_VARS_FNAME}.npz file."
+                )
+
+            if len(all_filenames) > 3:
+                asset_store = DiskIOStore(_ASSETS_DIRNAME, archive=zf, mode="r")
+            else:
+                asset_store = None
+
+            _load_state(
+                model,
+                weights_store=weights_store,
+                assets_store=asset_store,
+                inner_path="",
+                visited_trackables=set(),
+            )
+            weights_store.close()
+            if asset_store:
+                asset_store.close()
+
+    except Exception as e:
+        raise e
+    else:
+        return model
+    finally:
+        _SAVING_V3_ENABLED.value = saving_v3_enabled_value
+
+
+def save_weights_only(model, filepath):
+    """Save only the weights of a model to a target filepath (.weights.h5).
+
+    Note: only supports h5 for now.
+    """
+    # TODO: if h5 filepath is remote, create the file in a temporary directory
+    # then upload it
+    filepath = str(filepath)
+    if not filepath.endswith(".weights.h5"):
+        raise ValueError(
+            "Invalid `filepath` argument: expected a `.weights.h5` extension. "
+            f"Received: filepath={filepath}"
+        )
+    weights_store = H5IOStore(filepath, mode="w")
+    _save_state(
+        model,
+        weights_store=weights_store,
+        assets_store=None,
+        inner_path="",
+        visited_trackables=set(),
+    )
+    weights_store.close()
+
+
+def load_weights_only(model, filepath):
+    """Load the weights of a model from a filepath (.keras or .weights.h5).
+
+    Note: only supports h5 for now.
+    """
+    temp_dir = None
+    archive = None
+    filepath = str(filepath)
+    if filepath.endswith(".weights.h5"):
+        # TODO: download file if h5 filepath is remote
+        weights_store = H5IOStore(filepath, mode="r")
+    elif filepath.endswith(".keras"):
+        archive = zipfile.ZipFile(filepath, "r")
+        weights_store = H5IOStore(
+            _VARS_FNAME + ".h5", archive=archive, mode="r"
+        )
+
+    _load_state(
+        model,
+        weights_store=weights_store,
+        assets_store=None,
+        inner_path="",
+        visited_trackables=set(),
+    )
+    weights_store.close()
+    if temp_dir and tf.io.gfile.exists(temp_dir):
+        tf.io.gfile.rmtree(temp_dir)
+    if archive:
+        archive.close()
+
+
+def _write_to_zip_recursively(zipfile_to_save, system_path, zip_path):
+    if not tf.io.gfile.isdir(system_path):
+        zipfile_to_save.write(system_path, zip_path)
+    else:
+        for file_name in tf.io.gfile.listdir(system_path):
+            system_file_path = tf.io.gfile.join(system_path, file_name)
+            zip_file_path = tf.io.gfile.join(zip_path, file_name)
+            _write_to_zip_recursively(
+                zipfile_to_save, system_file_path, zip_file_path
+            )
+
+
+def _save_state(
+    trackable, weights_store, assets_store, inner_path, visited_trackables
+):
+    # If the trackable has already been saved, skip it.
+    if id(trackable) in visited_trackables:
+        return
+
+    # TODO(fchollet): better name?
+    if hasattr(trackable, "_save_own_variables") and weights_store:
+        trackable._save_own_variables(weights_store.make(inner_path))
+    if hasattr(trackable, "_save_assets") and assets_store:
+        trackable._save_assets(assets_store.make(inner_path))
+
+    visited_trackables.add(id(trackable))
+
+    # Recursively save state of children trackables (layers, optimizers, etc.)
+    for child_attr in dir(trackable):
+        if child_attr.startswith("__") or child_attr in ATTR_SKIPLIST:
+            continue
+        try:
+            child_obj = getattr(trackable, child_attr)
+        except Exception:
+            # Avoid raising the exception when visiting the attributes.
+            continue
+        if _is_keras_trackable(child_obj):
+            _save_state(
+                child_obj,
+                weights_store,
+                assets_store,
+                inner_path=tf.io.gfile.join(inner_path, child_attr),
+                visited_trackables=visited_trackables,
+            )
+        elif isinstance(child_obj, (list, dict, tuple, set)):
+            _save_container_state(
+                child_obj,
+                weights_store,
+                assets_store,
+                inner_path=tf.io.gfile.join(inner_path, child_attr),
+                visited_trackables=visited_trackables,
+            )
+
+
+def _load_state(
+    trackable, weights_store, assets_store, inner_path, visited_trackables
+):
+    if id(trackable) in visited_trackables:
+        return
+
+    if hasattr(trackable, "_load_own_variables") and weights_store:
+        trackable._load_own_variables(weights_store.get(inner_path))
+    if hasattr(trackable, "_load_assets") and assets_store:
+        trackable._load_assets(assets_store.get(inner_path))
+
+    visited_trackables.add(id(trackable))
+
+    # Recursively load states for Keras trackables such as layers/optimizers.
+    for child_attr in dir(trackable):
+        if child_attr.startswith("__") or child_attr in ATTR_SKIPLIST:
+            continue
+        try:
+            child_obj = getattr(trackable, child_attr)
+        except Exception:
+            # Avoid raising exceptions when visiting attributes.
+            continue
+        if _is_keras_trackable(child_obj):
+            _load_state(
+                child_obj,
+                weights_store,
+                assets_store,
+                inner_path=tf.io.gfile.join(inner_path, child_attr),
+                visited_trackables=visited_trackables,
+            )
+        elif isinstance(child_obj, (list, dict, tuple, set)):
+            _load_container_state(
+                child_obj,
+                weights_store,
+                assets_store,
+                inner_path=tf.io.gfile.join(inner_path, child_attr),
+                visited_trackables=visited_trackables,
+            )
+
+
+def _save_container_state(
+    container, weights_store, assets_store, inner_path, visited_trackables
+):
+    used_names = {}
+    for trackable in container:
+        if _is_keras_trackable(trackable):
+            # Do NOT address the trackable via `trackable.name`, since
+            # names are usually autogenerated and thus not reproducible
+            # (i.e. they may vary across two instances of the same model).
+            name = generic_utils.to_snake_case(trackable.__class__.__name__)
+            if name in used_names:
+                used_names[name] += 1
+                name = f"{name}_{used_names[name]}"
+            else:
+                used_names[name] = 0
+            _save_state(
+                trackable,
+                weights_store,
+                assets_store,
+                inner_path=tf.io.gfile.join(inner_path, name),
+                visited_trackables=visited_trackables,
+            )
+
+
+def _load_container_state(
+    container, weights_store, assets_store, inner_path, visited_trackables
+):
+    used_names = {}
+    for trackable in container:
+        if _is_keras_trackable(trackable):
+            name = generic_utils.to_snake_case(trackable.__class__.__name__)
+            if name in used_names:
+                used_names[name] += 1
+                name = f"{name}_{used_names[name]}"
+            else:
+                used_names[name] = 0
+            _load_state(
+                trackable,
+                weights_store,
+                assets_store,
+                inner_path=tf.io.gfile.join(inner_path, name),
+                visited_trackables=visited_trackables,
+            )
+
+
+class DiskIOStore:
+    """Asset store backed by disk storage.
+
+    If `archive` is specified, then `root_path` refers to the filename
+    inside the archive.
+
+    If `archive` is not specified, then `root_path` refers to the full path of
+    the target directory.
+    """
+
+    def __init__(self, root_path, archive=None, mode=None):
+        self.mode = mode
+        self.root_path = root_path
+        self.archive = archive
+        self.tmp_dir = None
+        if self.archive:
+            self.tmp_dir = _get_temp_dir()
+            if self.mode == "r":
+                self.archive.extractall(path=self.tmp_dir)
+            self.working_dir = tf.io.gfile.join(self.tmp_dir, self.root_path)
+            if self.mode == "w":
+                tf.io.gfile.makedirs(self.working_dir)
+        else:
+            if mode == "r":
+                self.working_dir = root_path
+            else:
+                self.tmp_dir = _get_temp_dir()
+                self.working_dir = tf.io.gfile.join(
+                    self.tmp_dir, self.root_path
+                )
+                tf.io.gfile.makedirs(self.working_dir)
+
+    def make(self, path):
+        if not path:
+            return self.working_dir
+        path = tf.io.gfile.join(self.working_dir, path)
+        if not tf.io.gfile.exists(path):
+            tf.io.gfile.makedirs(path)
+        return path
+
+    def get(self, path):
+        if not path:
+            return self.working_dir
+        path = tf.io.gfile.join(self.working_dir, path)
+        if tf.io.gfile.exists(path):
+            return path
+        return None
+
+    def close(self):
+        if self.mode == "w" and self.archive:
+            _write_to_zip_recursively(
+                self.archive, self.working_dir, self.root_path
+            )
+        if self.tmp_dir and tf.io.gfile.exists(self.tmp_dir):
+            tf.io.gfile.rmtree(self.tmp_dir)
+
+
+class H5IOStore:
+    def __init__(self, root_path, archive=None, mode="r"):
+        """Numerical variable store backed by HDF5.
+
+        If `archive` is specified, then `root_path` refers to the filename
+        inside the archive.
+
+        If `archive` is not specified, then `root_path` refers to the path of
+        the h5 file on disk.
+        """
+        self.root_path = root_path
+        self.mode = mode
+        self.archive = archive
+        self.io_file = None
+
+        if self.archive:
+            if self.mode == "w":
+                self.io_file = io.BytesIO()
+            else:
+                self.io_file = self.archive.open(self.root_path, "r")
+            self.h5_file = h5py.File(self.io_file, mode=self.mode)
+        else:
+            self.h5_file = h5py.File(root_path, mode=self.mode)
+
+    def make(self, path):
+        if not path:
+            return self.h5_file.create_group("vars")
+        return self.h5_file.create_group(path).create_group("vars")
+
+    def get(self, path):
+        if not path:
+            return self.h5_file["vars"]
+        if path in self.h5_file and "vars" in self.h5_file[path]:
+            return self.h5_file[path]["vars"]
+        return {}
+
+    def close(self):
+        self.h5_file.close()
+        if self.mode == "w" and self.archive:
+            self.archive.writestr(self.root_path, self.io_file.getvalue())
+        if self.io_file:
+            self.io_file.close()
+
+
+class NpzIOStore:
+    def __init__(self, root_path, archive=None, mode="r"):
+        """Numerical variable store backed by NumPy.savez/load.
+
+         If `archive` is specified, then `root_path` refers to the filename
+        inside the archive.
+
+        If `archive` is not specified, then `root_path` refers to the path of
+        the npz file on disk.
+        """
+        self.root_path = root_path
+        self.mode = mode
+        self.archive = archive
+        if mode == "w":
+            self.contents = {}
+        else:
+            if self.archive:
+                self.f = archive.open(root_path, mode="r")
+            else:
+                self.f = open(root_path, mode="rb")
+            self.contents = np.load(self.f, allow_pickle=True)
+
+    def make(self, path):
+        if not path:
+            self.contents["__root__"] = {}
+            return self.contents["__root__"]
+        self.contents[path] = {}
+        return self.contents[path]
+
+    def get(self, path):
+        if not path:
+            if "__root__" in self.contents:
+                return dict(self.contents["__root__"])
+            return {}
+        if path in self.contents:
+            return self.contents[path].tolist()
+        return {}
+
+    def close(self):
+        if self.mode == "w":
+            if self.archive:
+                self.f = self.archive.open(
+                    self.root_path, mode="w", force_zip64=True
+                )
+            else:
+                self.f = open(self.root_path, mode="wb")
+            np.savez(self.f, **self.contents)
+        self.f.close()
+
+
+def _get_temp_dir():
+    temp_dir = tempfile.mkdtemp()
+    testfile = tempfile.TemporaryFile(dir=temp_dir)
+    testfile.close()
+    return temp_dir
+
+
+def _is_keras_trackable(obj):
+    from keras.metrics import base_metric  # To avoid circular import
+
+    return isinstance(
+        obj,
+        (
+            base_layer.Layer,
+            optimizer.Optimizer,
+            base_metric.Metric,
+            losses.Loss,
+        ),
+    )
+
+
+def saving_v3_enabled():
+    return getattr(_SAVING_V3_ENABLED, "value", False)
+
+
+# Some debugging utilities.
+
+
+def _print_h5_file(h5_file, prefix="", action=None):
+    if not prefix:
+        print(f"Keras weights file ({h5_file}) {action}:")
+    if not hasattr(h5_file, "keys"):
+        return
+    for key in h5_file.keys():
+        print(f"...{prefix}{key}")
+        _print_h5_file(h5_file[key], prefix=prefix + "...")
+
+
+def _print_zip_file(zipfile, action):
+    # TODO(fchollet): move to debugging logs.
+    io_utils.print_msg(f"Keras model archive {action}:")
+    # Same as `ZipFile.printdir()` except for using Keras' printing utility.
+    io_utils.print_msg(
+        "%-46s %19s %12s" % ("File Name", "Modified    ", "Size")
+    )
+    for zinfo in zipfile.filelist:
+        date = "%d-%02d-%02d %02d:%02d:%02d" % zinfo.date_time[:6]
+        io_utils.print_msg(
+            "%-46s %s %12d" % (zinfo.filename, date, zinfo.file_size)
+        )

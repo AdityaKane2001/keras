@@ -20,8 +20,8 @@ import math
 import tensorflow.compat.v2 as tf
 
 from keras import backend
-from keras.utils.generic_utils import deserialize_keras_object
-from keras.utils.generic_utils import serialize_keras_object
+from keras.saving.legacy.serialization import deserialize_keras_object
+from keras.saving.legacy.serialization import serialize_keras_object
 
 # isort: off
 from tensorflow.python.util.tf_export import keras_export
@@ -329,7 +329,7 @@ class L2(Regularizer):
     v1=[],
 )
 class OrthogonalRegularizer(Regularizer):
-    """A regularizer that encourages input vectors to be orthogonal to each other.
+    """Regularizer that encourages input vectors to be orthogonal to each other.
 
     It can be applied to either the rows of a matrix (`mode="rows"`) or its
     columns (`mode="columns"`). When applied to a `Dense` kernel of shape

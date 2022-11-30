@@ -7,6 +7,7 @@ load("@org_keras//keras:keras.bzl", "tf_py_test")
 package(
     default_visibility = [
         "//keras:friends",
+        "//learning/brain/distribute/experimental/auto_distribute:__pkg__",
         "//learning/brain/experimental/dtensor/models:__subpackages__",
     ],
     licenses = ["notice"],
@@ -128,7 +129,7 @@ py_library(
     deps = [
         ":dtensor",
         "//:expect_tensorflow_installed",
-        "//keras/optimizers/optimizer_experimental:optimizer",
+        "//keras/optimizers",
         "//keras/optimizers/schedules:learning_rate_schedule",
     ],
 )

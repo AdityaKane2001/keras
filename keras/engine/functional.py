@@ -33,8 +33,9 @@ from keras.engine import input_spec
 from keras.engine import node as node_module
 from keras.engine import training as training_lib
 from keras.engine import training_utils
-from keras.saving.saved_model import json_utils
-from keras.saving.saved_model import network_serialization
+from keras.saving.legacy import serialization
+from keras.saving.legacy.saved_model import json_utils
+from keras.saving.legacy.saved_model import network_serialization
 from keras.utils import generic_utils
 from keras.utils import tf_inspect
 from keras.utils import tf_utils
@@ -741,21 +742,6 @@ class Functional(training_lib.Model):
                     tensor = tf.expand_dims(tensor, axis=-1)
             if keras_history is not None:  # Restore keras history.
                 tensor._keras_history = keras_history
-
-            # Add shape hints to Tensors that may have None shape dims but have
-            # shapes defined by the `keras.Input` (not applicable in eager
-            # mode).
-            if not tf.executing_eagerly():
-                try:
-                    tensor.set_shape(tensor.shape.merge_with(ref_input.shape))
-                except ValueError:
-                    logging.warning(
-                        "Model was constructed with shape {} for input {}, "
-                        "but it was called on an input with incompatible "
-                        "shape {}.".format(
-                            ref_input.shape, ref_input, tensor.shape
-                        )
-                    )
 
             # Dtype casting.
             tensor = tf.cast(tensor, dtype=ref_input.dtype)
@@ -1521,7 +1507,7 @@ def reconstruct_from_config(config, custom_objects=None, created_layers=None):
 
 
 def get_network_config(network, serialize_layer_fn=None, config=None):
-    """Builds the config, which consists of the node graph and serialized layers.
+    """Build the config, which consists of the node graph and serialized layers.
 
     Args:
       network: A Network object.
@@ -1533,7 +1519,7 @@ def get_network_config(network, serialize_layer_fn=None, config=None):
       Config dictionary.
     """
     serialize_layer_fn = (
-        serialize_layer_fn or generic_utils.serialize_keras_object
+        serialize_layer_fn or serialization.serialize_keras_object
     )
     config = config or {}
     config["name"] = network.name
@@ -1547,7 +1533,7 @@ def get_network_config(network, serialize_layer_fn=None, config=None):
                 kept_nodes += 1
     layer_configs = []
 
-    with generic_utils.SharedObjectSavingScope():
+    with serialization.SharedObjectSavingScope():
         for layer in network.layers:  # From the earliest layers on.
             filtered_inbound_nodes = []
             for original_node_index, node in enumerate(layer._inbound_nodes):

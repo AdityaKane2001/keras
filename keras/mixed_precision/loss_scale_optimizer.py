@@ -18,17 +18,12 @@ import tensorflow.compat.v2 as tf
 
 from keras import backend
 from keras import optimizers
-from keras.optimizers.optimizer_experimental import (
-    optimizer as optimizer_experimental,
-)
+from keras.optimizers import optimizer
+from keras.optimizers import utils as optimizer_utils
 from keras.optimizers.optimizer_v2 import optimizer_v2
-from keras.optimizers.optimizer_v2 import utils as optimizer_utils
-from keras.utils import generic_utils
+from keras.saving.legacy import serialization
 
 # isort: off
-from tensorflow.python.keras.optimizer_v2 import (
-    optimizer_v2 as legacy_optimizer,
-)
 from tensorflow.python.platform import tf_logging
 from tensorflow.python.util.tf_export import keras_export
 
@@ -335,7 +330,7 @@ class LossScaleOptimizerMetaclass(type):
             )
         if isinstance(inner_optimizer, optimizer_v2.OptimizerV2):
             return LossScaleOptimizer(inner_optimizer, *args, **kwargs)
-        elif isinstance(inner_optimizer, optimizer_experimental.Optimizer):
+        elif isinstance(inner_optimizer, optimizer.Optimizer):
             return LossScaleOptimizerV3(inner_optimizer, *args, **kwargs)
 
         # Raise TypeError because inner_optimizer is not an optimizer
@@ -345,13 +340,6 @@ class LossScaleOptimizerMetaclass(type):
             "`tf.keras.optimizers.experimental.Optimizer`, but got: "
             f"{inner_optimizer}."
         )
-        if isinstance(inner_optimizer, legacy_optimizer.OptimizerV2):
-            msg += (
-                ' Please make sure "inner_optimizer" is not an instance of '
-                "`tensorflow.python.keras.optimizers`, which is "
-                "the legacy keras code and will be removed in future release. "
-                "Please use the tf.keras public API instead."
-            )
         raise TypeError(msg)
 
 
@@ -376,12 +364,12 @@ class BaseLossScaleOptimizer(metaclass=LossScaleOptimizerMetaclass):
     to do is wrap your optimizer with a `LossScaleOptimizer` if you use
     `minimize`. For example:
 
-    >>> opt = tf.keras.optimizers.SGD(0.25)
+    >>> opt = tf.keras.optimizers.experimental.SGD(0.25)
     >>> opt = tf.keras.mixed_precision.LossScaleOptimizer(opt)
     >>> var = tf.Variable(1.)
     >>> loss_fn = lambda: var ** 2
     >>> # 'minimize' applies loss scaling and updates the loss sale.
-    >>> opt.minimize(loss_fn, var_list=var)
+    >>> opt.minimize(loss_fn, var_list=[var])
     >>> var.numpy()
     0.5
 
@@ -454,7 +442,7 @@ class BaseLossScaleOptimizer(metaclass=LossScaleOptimizerMetaclass):
     accessed and set on the LossScaleOptimizer, which will be delegated to the
     wrapped optimizer.
 
-    >>> opt = tf.keras.optimizers.Adam(beta_1=0.8, epsilon=1e-5)
+    >>> opt = tf.keras.optimizers.legacy.Adam(beta_1=0.8, epsilon=1e-5)
     >>> opt = tf.keras.mixed_precision.LossScaleOptimizer(opt)
     >>> opt.beta_1  # Equivalent to `opt.inner_optimizer.beta_1`
     0.8
@@ -603,12 +591,12 @@ class LossScaleOptimizer(
         dynamic_growth_steps=None,
     ):
         if not isinstance(inner_optimizer, optimizer_v2.OptimizerV2):
-            if isinstance(inner_optimizer, optimizer_experimental.Optimizer):
+            if isinstance(inner_optimizer, optimizer.Optimizer):
                 # Give better error message if the new experimental optimizer is
                 # passed.
                 raise TypeError(
                     "You passed an instance of the new experimental "
-                    "optimizer, `optimizer_experimental.Optimizer`, "
+                    "optimizer, `optimizer.Optimizer`, "
                     "to LossScaleOptimizer, but "
                     "only the classic optimizers subclassing from "
                     "`tf.keras.optimizers.Optimizer` can be passed. Please "
@@ -624,13 +612,6 @@ class LossScaleOptimizer(
                 "`tf.keras.optimizers.Optimizer`, but got: %s. "
                 % inner_optimizer
             )
-            if isinstance(inner_optimizer, legacy_optimizer.OptimizerV2):
-                msg += (
-                    'Please make sure "inner_optimizer" is not an instance of '
-                    "`tensorflow.python.keras.optimizers`, which is "
-                    "the legacy keras code and will be removed in future "
-                    "release. Please use the tf.keras public API instead."
-                )
             raise TypeError(msg)
         if not isinstance(dynamic, bool):
             # Catch errors if a user incorrectly passes a string or float to the
@@ -895,7 +876,7 @@ class LossScaleOptimizer(
             # If loss_scale is in config, we assume we are deserializing a
             # LossScaleOptimizer from TF 2.3 or below. We convert the config so
             # it can be deserialized in the current LossScaleOptimizer.
-            loss_scale = generic_utils.deserialize_keras_object(
+            loss_scale = serialization.deserialize_keras_object(
                 config.pop("loss_scale"),
                 module_objects={
                     "FixedLossScale": tf.compat.v1.mixed_precision.FixedLossScale,  # noqa: E501
@@ -1093,7 +1074,7 @@ class LossScaleOptimizer(
 
 class LossScaleOptimizerV3(
     tf.__internal__.tracking.DelegatingTrackableMixin,
-    optimizer_experimental.Optimizer,
+    optimizer.Optimizer,
     BaseLossScaleOptimizer,
 ):
     """An optimizer that applies loss scaling to prevent numeric underflow.
@@ -1120,19 +1101,19 @@ class LossScaleOptimizerV3(
         initial_scale=None,
         dynamic_growth_steps=None,
     ):
-        if not isinstance(inner_optimizer, optimizer_experimental.Optimizer):
+        if not isinstance(inner_optimizer, optimizer.Optimizer):
             if isinstance(inner_optimizer, optimizer_v2.OptimizerV2):
                 # Give better error message if the OptimizerV2 class is passed
                 # instead of the new experimental optimizer.
                 raise TypeError(
-                    "You passed a `tf.keras.optimizer.Optimizer` instance to "
+                    "You passed a `tf.keras.optimizers.Optimizer` instance to "
                     "LossScaleOptimizerV3, but only the new experimental "
                     "optimizer defined in "
                     "keras/optimizer_expeirmental/optimizer.py can be "
                     "passed. Please use "
                     "`tf.keras.mixed_precision.LossScaleOptimizer` "
                     "instead of LossScaleOptimizerV3, as the former supports "
-                    "`tf.keras.optimizer.Optimizer`s. Got optimizer: "
+                    "`tf.keras.optimizers.Optimizer`s. Got optimizer: "
                     f"{inner_optimizer}"
                 )
             raise TypeError(
@@ -1414,6 +1395,9 @@ class LossScaleOptimizerV3(
     @ema_momentum.setter
     def ema_momentum(self, ema_momentum):
         self._optimizer.ema_momentum = ema_momentum
+
+    def finalize_variable_values(self, var_list):
+        self._optimizer.finalize_variable_values(var_list)
 
 
 class FakeOptimizerForRestoration(tf.__internal__.tracking.Trackable):

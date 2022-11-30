@@ -12,53 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
-
 """Built-in optimizer classes.
 
 For more examples see the base class `tf.keras.optimizers.Optimizer`.
 """
 
+# Imports needed for deserialization.
+
 import tensorflow.compat.v2 as tf
 
-# Imports needed for deserialization.
 from keras import backend
-from keras.optimizers.legacy import adadelta as adadelta_legacy
-from keras.optimizers.legacy import adagrad as adagrad_legacy
-from keras.optimizers.legacy import adam as adam_legacy
-from keras.optimizers.legacy import adamax as adamax_legacy
-from keras.optimizers.legacy import ftrl as ftrl_legacy
-from keras.optimizers.legacy import nadam as nadam_legacy
-from keras.optimizers.legacy import optimizer as optimizer_legacy
-from keras.optimizers.legacy import rmsprop as rmsprop_legacy
-from keras.optimizers.legacy import sgd as sgd_legacy
-from keras.optimizers.optimizer_experimental import (
-    adadelta as adadelta_experimental,
-)
-from keras.optimizers.optimizer_experimental import (
-    adagrad as adagrad_experimental,
-)
-from keras.optimizers.optimizer_experimental import adam as adam_experimental
-from keras.optimizers.optimizer_experimental import (
-    adamax as adamax_experimental,
-)
-from keras.optimizers.optimizer_experimental import adamw as adamw_experimental
-from keras.optimizers.optimizer_experimental import ftrl as ftrl_experimental
-from keras.optimizers.optimizer_experimental import nadam as nadam_experimental
-from keras.optimizers.optimizer_experimental import (
-    optimizer as optimizer_experimental,
-)
-from keras.optimizers.optimizer_experimental import (
-    rmsprop as rmsprop_experimental,
-)
-from keras.optimizers.optimizer_experimental import sgd as sgd_experimental
+from keras.optimizers import adadelta as adadelta_experimental
+from keras.optimizers import adafactor
+from keras.optimizers import adagrad as adagrad_experimental
+from keras.optimizers import adam as adam_experimental
+from keras.optimizers import adamax as adamax_experimental
+from keras.optimizers import adamw as adamw_experimental
+from keras.optimizers import ftrl as ftrl_experimental
+from keras.optimizers import nadam as nadam_experimental
+from keras.optimizers import optimizer as base_optimizer
+from keras.optimizers import rmsprop as rmsprop_experimental
+from keras.optimizers import sgd as sgd_experimental
 from keras.optimizers.optimizer_v1 import Optimizer
 from keras.optimizers.optimizer_v1 import TFOptimizer
 from keras.optimizers.optimizer_v2 import adadelta as adadelta_v2
 from keras.optimizers.optimizer_v2 import adagrad as adagrad_v2
 from keras.optimizers.optimizer_v2 import adam as adam_v2
 from keras.optimizers.optimizer_v2 import adamax as adamax_v2
-from keras.optimizers.optimizer_v2 import ftrl
+from keras.optimizers.optimizer_v2 import ftrl as ftrl_v2
 from keras.optimizers.optimizer_v2 import (
     gradient_descent as gradient_descent_v2,
 )
@@ -76,9 +57,9 @@ from keras.optimizers.optimizer_v2.ftrl import Ftrl
 from keras.optimizers.optimizer_v2.gradient_descent import SGD
 from keras.optimizers.optimizer_v2.nadam import Nadam
 from keras.optimizers.optimizer_v2.rmsprop import RMSprop
-from keras.utils.generic_utils import deserialize_keras_object
-from keras.utils.generic_utils import get_registered_name
-from keras.utils.generic_utils import serialize_keras_object
+from keras.optimizers.schedules import learning_rate_schedule
+from keras.saving.legacy.serialization import deserialize_keras_object
+from keras.saving.legacy.serialization import serialize_keras_object
 
 # isort: off
 from tensorflow.python.util.tf_export import keras_export
@@ -91,7 +72,7 @@ def serialize(optimizer):
     The configuration can be used for persistence and reconstruct the
     `Optimizer` instance again.
 
-    >>> tf.keras.optimizers.serialize(tf.keras.optimizers.SGD())
+    >>> tf.keras.optimizers.serialize(tf.keras.optimizers.legacy.SGD())
     {'class_name': 'SGD', 'config': {'name': 'SGD', 'learning_rate': 0.01,
                                      'decay': 0.0, 'momentum': 0.0,
                                      'nesterov': False}}
@@ -112,8 +93,8 @@ def deserialize(config, custom_objects=None, **kwargs):
     Args:
         config: Optimizer configuration dictionary.
         custom_objects: Optional dictionary mapping names (strings) to custom
-          objects (classes and functions) to be considered during
-          deserialization.
+            objects (classes and functions) to be considered during
+            deserialization.
 
     Returns:
         A Keras Optimizer instance.
@@ -168,7 +149,7 @@ def deserialize(config, custom_objects=None, **kwargs):
             "nadam": nadam_v2.Nadam,
             "rmsprop": rmsprop_v2.RMSprop,
             "sgd": gradient_descent_v2.SGD,
-            "ftrl": ftrl.Ftrl,
+            "ftrl": ftrl_v2.Ftrl,
             "lossscaleoptimizer": loss_scale_optimizer.LossScaleOptimizer,
             "lossscaleoptimizerv3": loss_scale_optimizer.LossScaleOptimizerV3,
             # LossScaleOptimizerV1 was an old version of LSO that was removed.
@@ -195,14 +176,14 @@ def convert_to_legacy_optimizer(optimizer):
 
     This function takes in a `tf.keras.optimizers.experimental.Optimizer`
     instance and converts it to the corresponding
-    `tf.keras.optimizer.legacy.Optimizer` instance.
+    `tf.keras.optimizers.legacy.Optimizer` instance.
     For example, `tf.keras.optimizers.experimental.Adam(...)` to
     `tf.keras.optimizers.legacy.Adam(...)`.
 
     Args:
         optimizer: An instance of `tf.keras.optimizers.experimental.Optimizer`.
     """
-    if not isinstance(optimizer, optimizer_experimental.Optimizer):
+    if not isinstance(optimizer, base_optimizer.Optimizer):
         raise ValueError(
             "`convert_to_legacy_optimizer` should only be called "
             "on instances of `tf.keras.optimizers.Optimizer`, but "
@@ -212,6 +193,7 @@ def convert_to_legacy_optimizer(optimizer):
     config = optimizer.get_config()
     # Remove fields that only exist in experimental optimizer.
     keys_to_remove = [
+        "weight_decay",
         "use_ema",
         "ema_momentum",
         "ema_overwrite_frequency",
@@ -220,6 +202,12 @@ def convert_to_legacy_optimizer(optimizer):
     ]
     for key in keys_to_remove:
         config.pop(key, None)
+    # Learning rate can be a custom LearningRateSchedule, which is stored as
+    # a dict in config, and cannot be deserialized.
+    if isinstance(
+        optimizer._learning_rate, learning_rate_schedule.LearningRateSchedule
+    ):
+        config["learning_rate"] = optimizer._learning_rate
     legacy_optimizer_config = {
         "class_name": optimizer_name,
         "config": config,
@@ -232,12 +220,10 @@ def get(identifier, **kwargs):
     """Retrieves a Keras Optimizer instance.
 
     Args:
-        identifier: Optimizer identifier, one of
-            - String: name of an optimizer
-            - Dictionary: configuration dictionary.
-            - Keras Optimizer instance (it will be returned unchanged).
-            - TensorFlow Optimizer instance (it will be wrapped as a Keras
-              Optimizer).
+        identifier: Optimizer identifier, one of - String: name of an optimizer
+          - Dictionary: configuration dictionary. - Keras Optimizer instance (it
+          will be returned unchanged). - TensorFlow Optimizer instance (it will
+          be wrapped as a Keras Optimizer).
 
     Returns:
         A Keras Optimizer instance.
@@ -254,7 +240,7 @@ def get(identifier, **kwargs):
         ),
     ):
         return identifier
-    elif isinstance(identifier, optimizer_experimental.Optimizer):
+    elif isinstance(identifier, base_optimizer.Optimizer):
         if tf.__internal__.tf2.enabled():
             return identifier
         else:

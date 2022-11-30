@@ -39,7 +39,7 @@ def numpy_text(tensor, is_repr=False):
 
 
 class AutoCastVariable(tf.Variable, tf.__internal__.types.Tensor):
-    """Variable that will cast itself to a different dtype in applicable contexts.
+    """Variable that casts itself to a different dtype in applicable contexts.
 
     This class wraps a floating-point `tf.Variable`. It emulates the variable
     interface and delegates to the wrapped variable, but it additionally will
@@ -376,6 +376,17 @@ class AutoCastVariable(tf.Variable, tf.__internal__.types.Tensor):
         obj_map, resource_map = self._variable._map_resources(save_options)
         obj_map[self] = obj_map[self._variable]
         return obj_map, resource_map
+
+    def _export_to_saved_model_graph(
+        self, object_map, tensor_map, options, **kwargs
+    ):
+        # By delegating this method to the wrapped variable, SavedModel with
+        # AutoCastVariables are identical to SavedModel with normal variables.
+        resource_list = self._variable._export_to_saved_model_graph(
+            object_map, tensor_map, options, **kwargs
+        )
+        object_map[self] = object_map[self._variable]
+        return resource_list
 
     # TODO(reedwm): Maybe encode the fact the variable is an AutoCastVariable in
     # to_proto().

@@ -655,8 +655,12 @@ class BaseLayerTest(test_combinations.TestCase):
 
         # `__init__` includes kwargs but `get_config` is not overridden, so
         # an error should be thrown:
-        with self.assertRaisesRegex(NotImplementedError, "Layer MyLayer has"):
-            MyLayer("custom").get_config()
+        with self.assertRaisesRegex(
+            NotImplementedError, "Layer MyLayer was created by"
+        ):
+            # We pass bytes because it's non-serializable and thus
+            # will not be handled by the auto-get_config
+            MyLayer(b"custom").get_config()
 
         class MyLayerNew(base_layer.Layer):
             def __init__(self, my_kwarg="default", **kwargs):
@@ -1036,6 +1040,65 @@ class BaseLayerTest(test_combinations.TestCase):
         self.assertLen(model.variables, 2)
         self.assertLen(model.trainable_variables, 0)
         self.assertLen(model.non_trainable_variables, 2)
+
+    def test_tf_tracking_lists(self):
+        class MyLayer(base_layer.Layer):
+            def __init__(self, num_weights):
+                super().__init__()
+                self.num_weights = num_weights
+
+            def build(self, input_shape):
+                super().build(input_shape)
+                self.my_weights = []
+                w_init = tf.random_normal_initializer()
+                for i in range(self.num_weights):
+                    self.my_weights.append(
+                        tf.Variable(
+                            name=f"w_{i}",
+                            initial_value=w_init(
+                                shape=(input_shape[1], input_shape[1]),
+                                dtype="float32",
+                            ),
+                            trainable=True,
+                        )
+                    )
+
+            def call(self, x):
+                for w in self.my_weights:
+                    x = tf.matmul(x, w)
+                return x
+
+        layer = MyLayer(3)
+        layer(tf.constant([[1.0, 1.0, 1.0, 1.0]]))
+        self.assertLen(layer.variables, 3)
+        self.assertLen(layer.trainable_variables, 3)
+        self.assertLen(layer.non_trainable_variables, 0)
+
+        layer.trainable = False
+        self.assertLen(layer.variables, 3)
+        self.assertLen(layer.trainable_variables, 0)
+        self.assertLen(layer.non_trainable_variables, 3)
+
+    def test_auto_get_config(self):
+        class MyLayer(base_layer.Layer):
+            def __init__(self, var1, var2, var3=None, **kwargs):
+                super().__init__(**kwargs)
+
+        layer = MyLayer("a", 2, var3=True, name="mylayer")
+        config = layer.get_config()
+        self.assertLen(config, 6)
+        self.assertEqual(config["var1"], "a")
+        self.assertEqual(config["var2"], 2)
+        self.assertEqual(config["var3"], True)
+        self.assertEqual(config["name"], "mylayer")
+        self.assertEqual(config["trainable"], True)
+        self.assertEqual(config["dtype"], "float32")
+        layer = MyLayer.from_config(config)
+        self.assertDictEqual(layer.get_config(), config)
+
+        layer = MyLayer("a", 2, var3=tf.nn.relu)
+        with self.assertRaises(NotImplementedError):
+            config = layer.get_config()
 
 
 @test_utils.run_v2_only

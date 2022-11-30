@@ -347,10 +347,9 @@ def learning_phase():
             # subgraph.
             if context.executing_eagerly():
                 if _DUMMY_EAGER_GRAPH.key not in _GRAPH_LEARNING_PHASES:
-                    phase = _default_learning_phase()
-                    _internal_set_learning_phase(_DUMMY_EAGER_GRAPH.key, phase)
-                    _DUMMY_EAGER_GRAPH.learning_phase_is_set = True
-                return _internal_get_learning_phase(_DUMMY_EAGER_GRAPH.key)
+                    return _default_learning_phase()
+                else:
+                    return _internal_get_learning_phase(_DUMMY_EAGER_GRAPH.key)
             else:
                 learning_phase = symbolic_learning_phase()
     _mark_func_graph_as_unsaveable(graph, learning_phase)
@@ -362,7 +361,7 @@ def global_learning_phase_is_set():
 
 
 def _mark_func_graph_as_unsaveable(graph, learning_phase):
-    """Mark func graph as unsaveable due to use of symbolic keras learning phase.
+    """Mark graph as unsaveable due to use of symbolic keras learning phase.
 
     Functions that capture the symbolic learning phase cannot be exported to
     SavedModel. Mark the funcgraph as unsaveable, so that an error will be
@@ -915,7 +914,7 @@ def _get_current_tf_device():
 
 
 def _is_current_explicit_device(device_type):
-    """Check if the current device is explicitly set on the device type specified.
+    """Check if the current device is explicitly set to `device_type`.
 
     Args:
         device_type: A string containing `GPU` or `CPU` (case-insensitive).
@@ -1179,7 +1178,7 @@ def unique_object_name(
     zero_based=False,
     avoid_observed_names=False,
 ):
-    """Makes a object name (or arbitrary string) unique within a TensorFlow graph.
+    """Makes a object name (or any string) unique within a Keras session.
 
     Args:
       name: String name to make unique.
@@ -1470,7 +1469,10 @@ def is_placeholder(x):
         if tf.compat.v1.executing_eagerly_outside_functions():
             return hasattr(x, "_is_backend_placeholder")
 
-        if tf_utils.is_extension_type(x):
+        # TODO(b/246438937): Remove the special case for tf.Variable once
+        # tf.Variable becomes CompositeTensor and will be expanded into
+        # dt_resource tensors.
+        if tf_utils.is_extension_type(x) and not isinstance(x, tf.Variable):
             flat_components = tf.nest.flatten(x, expand_composites=True)
             return py_any(is_placeholder(c) for c in flat_components)
         else:
@@ -1508,7 +1510,7 @@ def shape(x):
 @keras_export("keras.backend.int_shape")
 @doc_controls.do_not_generate_docs
 def int_shape(x):
-    """Returns the shape of tensor or variable as a tuple of int or None entries.
+    """Returns shape of tensor/variable as a tuple of int/None entries.
 
     Args:
         x: Tensor or variable.
@@ -1823,7 +1825,7 @@ _USE_GENERATOR_FOR_RNG = False
 # way, so that each client of the program could start with same seed. This is
 # very important for certain use case that requires all the client to have their
 # state in sync. This instance will be set when user call
-# `tf.keras.util.set_random_seed()`
+# `tf.keras.utils.set_random_seed()`
 _SEED_GENERATOR = threading.local()
 
 
@@ -1974,7 +1976,9 @@ class RandomGenerator(tf.__internal__.tracking.AutoTrackable):
         elif self._rng_type == self.RNG_STATEFUL:
             with tf_utils.maybe_init_scope(self):
                 seed = self._create_seed(self._seed)
-                self._generator = tf.random.Generator.from_seed(seed)
+                self._generator = tf.random.Generator.from_seed(
+                    seed, alg=tf.random.Algorithm.AUTO_SELECT
+                )
         else:
             # In legacy stateful, we use stateful op, regardless whether user
             # provide seed or not. Seeded stateful op will ensure generating
@@ -2025,7 +2029,7 @@ class RandomGenerator(tf.__internal__.tracking.AutoTrackable):
         elif getattr(_SEED_GENERATOR, "generator", None):
             return _SEED_GENERATOR.generator.randint(1, 1e9)
         else:
-            return random.randint(1, 1e9)
+            return random.randint(1, int(1e9))
 
     def random_normal(
         self, shape, mean=0.0, stddev=1.0, dtype=None, nonce=None
@@ -2828,7 +2832,7 @@ def cumsum(x, axis=0):
 @tf.__internal__.dispatch.add_dispatch_support
 @doc_controls.do_not_generate_docs
 def cumprod(x, axis=0):
-    """Cumulative product of the values in a tensor, alongside the specified axis.
+    """Cumulative product of the values in a tensor alongside `axis`.
 
     Args:
         x: A tensor or variable.

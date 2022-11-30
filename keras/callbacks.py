@@ -31,6 +31,7 @@ import tensorflow.compat.v2 as tf
 from keras import backend
 from keras.distribute import distributed_file_utils
 from keras.distribute import worker_training_state
+from keras.optimizers import optimizer
 from keras.optimizers.schedules import learning_rate_schedule
 from keras.utils import generic_utils
 from keras.utils import io_utils
@@ -1775,10 +1776,18 @@ class BackupAndRestore(Callback):
     >>> history = model.fit(np.arange(100).reshape(5, 20), np.zeros(5),
     ...                     epochs=10, batch_size=1, callbacks=[callback],
     ...                     verbose=0)
-    >>> # Only 6 more epochs are run, since first trainning got interrupted at
+    >>> # Only 6 more epochs are run, since first training got interrupted at
     >>> # zero-indexed epoch 4, second training will continue from 4 to 9.
     >>> len(history.history['loss'])
     6
+
+    Besides the option to save at the end of every epoch or every N steps, if
+    you are doing distributed training with
+    `tf.distribute.MultiWorkerMirroredStrategy` on Google Cloud Platform or
+    Google Borg, you can also use the `save_before_preemption` argument
+    to enable saving a checkpoint right before a worker gets preempted
+    by other jobs and training gets interrupted. See
+    `tf.distribute.experimental.PreemptionCheckpointHandler` for more details.
 
     Args:
         backup_dir: String, path to store the checkpoint.
@@ -1788,18 +1797,30 @@ class BackupAndRestore(Callback):
           cannot be reused elsewhere to store other files, e.g. by
           BackupAndRestore callback of another training, or by another callback
           (ModelCheckpoint) of the same training.
-        save_freq: `'epoch'` or integer. When set to `'epoch'`
+        save_freq: `'epoch'`, integer, or `False`. When set to `'epoch'`
           the callback saves the checkpoint at the end of each epoch.
           When set to an integer, the callback saves the checkpoint every
-          `save_freq` batches.
+          `save_freq` batches. Set `save_freq` to `False` if only using
+          preemption checkpointing (with `save_before_preemption=True`).
         delete_checkpoint: Boolean, default to True. This `BackupAndRestore`
           callback works by saving a checkpoint to back up the training state.
           If `delete_checkpoint=True`, the checkpoint will be deleted after
           training is finished. Use `False` if you'd like to keep the checkpoint
           for future usage.
+        save_before_preemption: A boolean value instructing whether to turn on
+          the automatic checkpoint saving for preemption/maintenance events.
+          This only supports
+          `tf.distribute.MultiWorkerMirroredStrategy` on Google Cloud Platform
+          or Google Borg for now.
     """
 
-    def __init__(self, backup_dir, save_freq="epoch", delete_checkpoint=True):
+    def __init__(
+        self,
+        backup_dir,
+        save_freq="epoch",
+        delete_checkpoint=True,
+        save_before_preemption=False,
+    ):
         super().__init__()
         self.backup_dir = backup_dir
         self._supports_tf_logs = True
@@ -1812,6 +1833,7 @@ class BackupAndRestore(Callback):
         )
         self.save_freq = save_freq
         self.delete_checkpoint = delete_checkpoint
+        self.save_before_preemption = save_before_preemption
         self._batches_count = 0
         self._current_epoch = 0
 
@@ -1829,6 +1851,10 @@ class BackupAndRestore(Callback):
                     "providing `initial_epoch` in `model.fit()` for fault "
                     "tolerance."
                 )
+        if (not save_freq) and (not save_before_preemption):
+            raise ValueError(
+                "Either `save_freq` or `save_before_preemption` " "must be set."
+            )
 
         # Only the chief worker writes model checkpoints, but all workers
         # restore checkpoint at on_train_begin().
@@ -1848,13 +1874,20 @@ class BackupAndRestore(Callback):
                 "MirroredStrategy, MultiWorkerMirroredStrategy and TPUStrategy."
             )
         self.model._training_state = worker_training_state.WorkerTrainingState(
-            self.model, self.backup_dir, self.save_freq
+            self.model,
+            self.backup_dir,
+            self.save_freq,
+            self.save_before_preemption,
         )
         self._training_state = self.model._training_state
         self._training_state.restore()
 
+    def on_train_batch_begin(self, batch, logs=None):
+        self._training_state._ckpt_saved_batch.assign(batch)
+
     def on_train_batch_end(self, batch, logs=None):
-        if self.save_freq != "epoch":
+        self._training_state.backup_if_preempted()
+        if self.save_freq and self.save_freq != "epoch":
             self._batches_count += 1
             if self._batches_count >= self.save_freq:
                 self._batches_count = 0
@@ -1875,6 +1908,7 @@ class BackupAndRestore(Callback):
         del self.model._training_state
 
     def on_epoch_begin(self, epoch, logs=None):
+        self._training_state._ckpt_saved_epoch.assign(epoch)
         self._current_epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
@@ -1945,6 +1979,10 @@ class EarlyStopping(Callback):
           of the performance relative to the `baseline`. If no epoch
           improves on `baseline`, training will run for `patience`
           epochs and restore weights from the best epoch in that set.
+      start_from_epoch: Number of epochs to wait before starting
+          to monitor improvement. This allows for a warm-up period in which
+          no improvement is expected and thus training will not be stopped.
+
 
     Example:
 
@@ -1969,6 +2007,7 @@ class EarlyStopping(Callback):
         mode="auto",
         baseline=None,
         restore_best_weights=False,
+        start_from_epoch=0,
     ):
         super().__init__()
 
@@ -1981,6 +2020,7 @@ class EarlyStopping(Callback):
         self.stopped_epoch = 0
         self.restore_best_weights = restore_best_weights
         self.best_weights = None
+        self.start_from_epoch = start_from_epoch
 
         if mode not in ["auto", "min", "max"]:
             logging.warning(
@@ -2018,7 +2058,8 @@ class EarlyStopping(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         current = self.get_monitor_value(logs)
-        if current is None:
+        if current is None or epoch < self.start_from_epoch:
+            # If no monitor value exists or still in initial warm-up stage.
             return
         if self.restore_best_weights and self.best_weights is None:
             # Restore the weights after first epoch if no progress is ever made.
@@ -2308,12 +2349,20 @@ class TensorBoard(Callback, version_utils.TensorBoardVersionSelector):
         write_steps_per_second: whether to log the training steps per second
           into Tensorboard. This supports both epoch and batch frequency
           logging.
-        update_freq: `'batch'` or `'epoch'` or integer. When using `'batch'`,
-          writes the losses and metrics to TensorBoard after each batch. The
-          same applies for `'epoch'`. If using an integer, let's say `1000`, the
-          callback will write the metrics and losses to TensorBoard every 1000
-          batches. Note that writing too frequently to TensorBoard can slow down
-          your training.
+        update_freq: `'batch'` or `'epoch'` or integer. When using `'epoch'`,
+          writes the losses and metrics to TensorBoard after every epoch.
+          If using an integer, let's say `1000`, all metrics and losses
+          (including custom ones added by `Model.compile`) will be logged to
+          TensorBoard every 1000 batches. `'batch'` is a synonym for `1`,
+          meaning that they will be written every batch.
+          Note however that writing too frequently to TensorBoard can slow down
+          your training, especially when used with `tf.distribute.Strategy` as
+          it will incur additional synchronization overhead.
+          Use with `ParameterServerStrategy` is not supported.
+          Batch-level summary writing is also available via `train_step`
+          override. Please see
+          [TensorBoard Scalars tutorial](https://www.tensorflow.org/tensorboard/scalars_and_keras#batch-level_logging)  # noqa: E501
+          for more details.
         profile_batch: Profile the batch(es) to sample compute characteristics.
           profile_batch must be a non-negative integer or a tuple of integers.
           A pair of positive integers signify a range of batches to profile.
@@ -2527,7 +2576,13 @@ class TensorBoard(Callback, version_utils.TensorBoardVersionSelector):
                 # If the train_function is a `tf.function`, we can write out a
                 # graph
                 if hasattr(train_fn, "function_spec"):
-                    tf.summary.graph(train_fn._concrete_stateful_fn.graph)
+                    # TODO(b/243822285): Use _variable_creation_fn directly.
+                    if hasattr(train_fn, "_concrete_stateful_fn"):
+                        tf.summary.graph(train_fn._concrete_stateful_fn.graph)
+                    else:
+                        tf.summary.graph(
+                            train_fn._concrete_variable_creation_fn.graph
+                        )
 
     def _write_keras_model_summary(self):
         """Writes Keras graph network summary to TensorBoard."""
@@ -2727,6 +2782,15 @@ class TensorBoard(Callback, version_utils.TensorBoardVersionSelector):
                 1.0 / batch_run_time,
                 step=self._train_step,
             )
+
+        # `logs` isn't necessarily always a dict. For example, when using
+        # `tf.distribute.experimental.ParameterServerStrategy`, a
+        # `tf.distribute.experimental.coordinator.RemoteValue` will be passed.
+        # For now, we just disable `update_freq` in those cases.
+        if isinstance(logs, dict):
+            for name, value in logs.items():
+                tf.summary.scalar("batch_" + name, value, step=self._train_step)
+
         if not self._should_trace:
             return
 
@@ -2768,7 +2832,10 @@ class TensorBoard(Callback, version_utils.TensorBoardVersionSelector):
         self._is_tracing = False
 
     def _collect_learning_rate(self, logs):
-        lr_schedule = getattr(self.model.optimizer, "lr", None)
+        if isinstance(self.model.optimizer, optimizer.Optimizer):
+            lr_schedule = getattr(self.model.optimizer, "_learning_rate", None)
+        else:
+            lr_schedule = getattr(self.model.optimizer, "lr", None)
         if isinstance(lr_schedule, learning_rate_schedule.LearningRateSchedule):
             logs["learning_rate"] = lr_schedule(self.model.optimizer.iterations)
         return logs
